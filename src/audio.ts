@@ -371,9 +371,9 @@ export async function renderMixdown(opts: {
     applyFades(g, 0, Infinity, l.gain, l.fx)
   }
 
-  // recorded keyboard notes, rendered once at their positions
+  // recorded keyboard notes (grain or synth), rendered once at their positions
   if (opts.notes) {
-    for (const n of opts.notes) scheduleGrainNote(oc, m, n, Math.max(0, n.startSec))
+    for (const n of opts.notes) scheduleNoteAt(oc, m, n, Math.max(0, n.startSec))
   }
 
   // drum pattern, looped across the whole arrangement
@@ -637,20 +637,109 @@ export function noteOn(buffer: AudioBuffer, semitones: number, gain = 0.9, fx?: 
   }
 }
 
-// --- recorded keyboard notes: schedule fixed-length pitched grains on the clock ---
+// --- synth voices: oscillator instruments playable from the keyboard ---
+export type SynthPreset = {
+  id: string; label: string
+  wave: OscillatorType
+  voices: number   // unison oscillator count
+  detune: number   // cents spread across the unison
+  cutoff: number   // lowpass Hz
+  q: number
+  attack: number
+  release: number
+  gain: number     // preset loudness scale
+  sub?: boolean    // add a sine an octave below
+  fm?: { ratio: number; index: number } // metallic FM on each carrier
+}
+
+export const SYNTHS: SynthPreset[] = [
+  { id: 'synth:pad', label: 'Pad', wave: 'sawtooth', voices: 3, detune: 14, cutoff: 1300, q: 0.4, attack: 0.12, release: 0.5, gain: 0.5 },
+  { id: 'synth:sub', label: 'Sub Bass', wave: 'sine', voices: 1, detune: 0, cutoff: 6000, q: 0, attack: 0.01, release: 0.18, gain: 0.95, sub: true },
+  { id: 'synth:keys', label: 'Keys', wave: 'triangle', voices: 2, detune: 9, cutoff: 2400, q: 0.6, attack: 0.005, release: 0.3, gain: 0.6 },
+  { id: 'synth:bell', label: 'Bell', wave: 'sine', voices: 1, detune: 0, cutoff: 5000, q: 0, attack: 0.002, release: 0.6, gain: 0.5, fm: { ratio: 2.0, index: 180 } },
+]
+export function getSynth(id: string): SynthPreset | undefined {
+  return SYNTHS.find((s) => s.id === id)
+}
+
+// semitone 0 = middle C; the keyboard's octave shift moves it in 12s
+const synthFreq = (semitones: number) => 261.63 * Math.pow(2, semitones / 12)
+
+/** Build a preset's oscillator graph at a frequency; returns the amp node + all sources. */
+function synthGraph(c: BaseAudioContext, preset: SynthPreset, freq: number, out: AudioNode) {
+  const amp = c.createGain()
+  amp.gain.value = 0
+  const filter = c.createBiquadFilter()
+  filter.type = 'lowpass'
+  filter.frequency.value = preset.cutoff
+  filter.Q.value = preset.q
+  filter.connect(amp).connect(out)
+
+  const sources: AudioScheduledSourceNode[] = []
+  const n = Math.max(1, preset.voices)
+  for (let i = 0; i < n; i++) {
+    const o = c.createOscillator()
+    o.type = preset.wave
+    o.frequency.value = freq
+    o.detune.value = n > 1 ? (i - (n - 1) / 2) * preset.detune : 0
+    const og = c.createGain(); og.gain.value = preset.gain / n
+    o.connect(og).connect(filter)
+    sources.push(o)
+    if (preset.fm) {
+      const mod = c.createOscillator(); mod.frequency.value = freq * preset.fm.ratio
+      const mg = c.createGain(); mg.gain.value = preset.fm.index * freq / 261.63
+      mod.connect(mg).connect(o.frequency)
+      sources.push(mod)
+    }
+  }
+  if (preset.sub) {
+    const so = c.createOscillator(); so.type = 'sine'; so.frequency.value = freq / 2
+    const sg = c.createGain(); sg.gain.value = preset.gain * 0.6
+    so.connect(sg).connect(filter)
+    sources.push(so)
+  }
+  return { amp, sources }
+}
+
+/** Play a synth voice and hold it until stopped (attack/release envelope). */
+export function synthNoteOn(preset: SynthPreset, semitones: number, gain = 0.8): Note {
+  const c = audioCtx()
+  const { amp, sources } = synthGraph(c, preset, synthFreq(semitones), ensureMaster())
+  const t = c.currentTime
+  amp.gain.setValueAtTime(0.0001, t)
+  amp.gain.linearRampToValueAtTime(Math.max(0.0001, gain), t + preset.attack)
+  sources.forEach((s) => s.start(t))
+  let stopped = false
+  return {
+    stop() {
+      if (stopped) return
+      stopped = true
+      const now = audioCtx().currentTime
+      try {
+        amp.gain.cancelScheduledValues(now)
+        amp.gain.setValueAtTime(amp.gain.value, now)
+        amp.gain.linearRampToValueAtTime(0.0001, now + preset.release)
+        sources.forEach((s) => { try { s.stop(now + preset.release + 0.03) } catch { /* noop */ } })
+      } catch { /* noop */ }
+    },
+  }
+}
+
+// --- recorded keyboard notes: schedule fixed-length grain OR synth notes ---
 export type ScheduledNote = {
-  buffer: AudioBuffer
   semitones: number
   startSec: number
   durSec: number
   gain: number
+  buffer?: AudioBuffer // grain note
+  synth?: SynthPreset  // synth note
   fx?: GrainFX
 }
 
-/** One recorded note: a pitched, looped grain with an attack + a release at its end. */
-function scheduleGrainNote(c: BaseAudioContext, out: AudioNode, n: ScheduledNote, when: number): AudioBufferSourceNode {
+/** One recorded grain note: a pitched, looped grain with an attack + a release at its end. */
+function scheduleGrainNote(c: BaseAudioContext, out: AudioNode, n: ScheduledNote, when: number): AudioScheduledSourceNode[] {
   const src = c.createBufferSource()
-  src.buffer = n.buffer
+  src.buffer = n.buffer!
   src.loop = true
   src.playbackRate.value = Math.pow(2, n.semitones / 12)
   const filter = c.createBiquadFilter()
@@ -668,10 +757,33 @@ function scheduleGrainNote(c: BaseAudioContext, out: AudioNode, n: ScheduledNote
   src.connect(filter).connect(g).connect(out)
   src.start(when)
   try { src.stop(when + dur + rel + 0.03) } catch { /* noop */ }
-  return src
+  return [src]
 }
 
-let noteSources: AudioBufferSourceNode[] = []
+/** One recorded synth note: a preset voice with a fixed duration + release. */
+function scheduleSynthNote(c: BaseAudioContext, out: AudioNode, n: ScheduledNote, when: number): AudioScheduledSourceNode[] {
+  const preset = n.synth!
+  const { amp, sources } = synthGraph(c, preset, synthFreq(n.semitones), out)
+  const dur = Math.max(0.05, n.durSec)
+  const a = Math.min(preset.attack, dur * 0.5)
+  const rel = preset.release
+  const peak = Math.max(0.0001, n.gain)
+  amp.gain.setValueAtTime(0.0001, when)
+  amp.gain.linearRampToValueAtTime(peak, when + a)
+  amp.gain.setValueAtTime(peak, when + dur)
+  amp.gain.linearRampToValueAtTime(0.0001, when + dur + rel)
+  sources.forEach((s) => { s.start(when); try { s.stop(when + dur + rel + 0.03) } catch { /* noop */ } })
+  return sources
+}
+
+/** Schedule one recorded note (grain or synth), returning its source nodes. */
+function scheduleNoteAt(c: BaseAudioContext, out: AudioNode, n: ScheduledNote, when: number): AudioScheduledSourceNode[] {
+  if (n.synth) return scheduleSynthNote(c, out, n, when)
+  if (n.buffer) return scheduleGrainNote(c, out, n, when)
+  return []
+}
+
+let noteSources: AudioScheduledSourceNode[] = []
 
 /** Schedule a pass of recorded notes through the master bus. */
 export function startNotes(notes: ScheduledNote[], startTime?: number): void {
@@ -679,7 +791,7 @@ export function startNotes(notes: ScheduledNote[], startTime?: number): void {
   const c = audioCtx()
   const m = ensureMaster()
   const t0 = startTime ?? c.currentTime + 0.08
-  for (const n of notes) noteSources.push(scheduleGrainNote(c, m, n, t0 + Math.max(0, n.startSec)))
+  for (const n of notes) noteSources.push(...scheduleNoteAt(c, m, n, t0 + Math.max(0, n.startSec)))
 }
 
 export function stopNotes(): void {

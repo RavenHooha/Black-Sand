@@ -3,7 +3,8 @@ import {
   audioCtx, decodeFile, sliceBuffer, reverseBuffer, stopAll, startLayer, setHaze as applyHaze,
   setEcho as applyEcho, setEchoTime, startTimeline, stopTimeline, renderMixdown,
   startDrums, stopDrums, updateDrums, currentDrumStep, DRUM_VOICES, DRUM_STEPS,
-  noteOn, Note, startNotes, stopNotes, ScheduledNote, Layer, GrainFX, DEFAULT_FX, rateOf,
+  noteOn, Note, synthNoteOn, SYNTHS, getSynth, startNotes, stopNotes, ScheduledNote,
+  Layer, GrainFX, DEFAULT_FX, rateOf,
 } from './audio'
 import Waveform from './components/Waveform'
 import SampleLibrary, { Sample } from './components/SampleLibrary'
@@ -33,6 +34,16 @@ type Snap = {
   drumPattern: boolean[][]; drumGain: number; drumSwing: number
   drumVoiceGain: number[]; drumVoiceTune: number[]; drumVoiceDecay: number[]; recordedNotes: RecordedNote[]
   trackVol: number[]; trackMute: boolean[]; trackSolo: boolean[]; keyInstrument: string
+}
+
+// resolve a keyboard instrument id to a synth preset or a grain sample
+function resolveInstrument(id: string, samples: Sample[]) {
+  if (id.startsWith('synth:')) {
+    const preset = getSynth(id)
+    return preset ? { kind: 'synth' as const, preset } : null
+  }
+  const sample = samples.find((s) => s.id === id) ?? samples[0]
+  return sample ? { kind: 'grain' as const, sample } : null
 }
 
 function emptyDrums(steps: number = DRUM_STEPS): boolean[][] {
@@ -75,7 +86,7 @@ export default function App() {
   const [drumStep, setDrumStep] = useState(-1) // currently-sounding step for the highlight
 
   // keyboard
-  const [keyInstrument, setKeyInstrument] = useState('')
+  const [keyInstrument, setKeyInstrument] = useState('synth:pad') // a synth so the keys play before any chop
   const [keyOctave, setKeyOctave] = useState(4)
   const [keyGain, setKeyGain] = useState(0.9)
   const [held, setHeld] = useState<Set<number>>(new Set()) // offsets currently sounding
@@ -238,33 +249,43 @@ export default function App() {
   const recordedNotesRef = useRef<RecordedNote[]>(recordedNotes)
   recordedNotesRef.current = recordedNotes
 
-  // recorded notes resolved to playable form (buffer + tone/fade), for transport + bounce
+  // recorded notes resolved to playable form (grain buffer or synth preset), for transport + bounce
   function resolveNotes(): ScheduledNote[] {
     return recordedNotesRef.current
-      .map((n) => {
-        const s = kbRef.current.samples.find((x) => x.id === n.sampleId)
-        return s
-          ? { buffer: s.buffer, semitones: n.semitones, startSec: n.startSec, durSec: n.durSec, gain: n.gain, fx: kbRef.current.fx[n.sampleId] }
-          : null
+      .map((n): ScheduledNote | null => {
+        const r = resolveInstrument(n.sampleId, kbRef.current.samples)
+        if (!r) return null
+        const base = { semitones: n.semitones, startSec: n.startSec, durSec: n.durSec, gain: n.gain }
+        return r.kind === 'synth'
+          ? { ...base, synth: r.preset }
+          : { ...base, buffer: r.sample.buffer, fx: kbRef.current.fx[r.sample.id] }
       })
-      .filter((x): x is NonNullable<typeof x> => !!x)
+      .filter((x): x is ScheduledNote => !!x)
+  }
+
+  // start a note for the current keyboard voice (synth or grain)
+  function voiceNoteOn(instrument: string, semitones: number, gain: number): { note: Note; recId: string } | null {
+    const r = resolveInstrument(instrument, kbRef.current.samples)
+    if (!r) return null
+    return r.kind === 'synth'
+      ? { note: synthNoteOn(r.preset, semitones, gain), recId: r.preset.id }
+      : { note: noteOn(r.sample.buffer, semitones, gain, kbRef.current.fx[r.sample.id]), recId: r.sample.id }
   }
 
   function triggerNote(offset: number) {
     if (notesRef.current.has(offset)) return // already held
-    const { samples: ss, fx: ff, keyInstrument: ki, keyOctave: ko, keyGain: kg } = kbRef.current
-    const inst = ss.find((s) => s.id === ki) ?? ss[0]
-    if (!inst) return
+    const { keyInstrument: ki, keyOctave: ko, keyGain: kg } = kbRef.current
     const semis = offset + (ko - 4) * 12
-    const note = noteOn(inst.buffer, semis, kg, ff[inst.id])
-    notesRef.current.set(offset, note)
+    const v = voiceNoteOn(ki, semis, kg)
+    if (!v) return
+    notesRef.current.set(offset, v.note)
     setHeld((prev) => new Set(prev).add(offset))
     // capture the note start if armed + rolling
     if (kbRef.current.recArmed && kbRef.current.playing) {
       const now = audioCtx().currentTime
       const len = playLenRef.current || 1
       const startSec = (((now - playOriginRef.current) % len) + len) % len
-      recHeldRef.current.set(offset, { startedAt: now, startSec, sampleId: inst.id, semitones: semis, gain: kg })
+      recHeldRef.current.set(offset, { startedAt: now, startSec, sampleId: v.recId, semitones: semis, gain: kg })
     }
   }
   function releaseNote(offset: number) {
@@ -303,10 +324,8 @@ export default function App() {
     previewNote(sampleId, semitones)
   }
   function previewNote(sampleId: string, semitones: number) {
-    const s = samples.find((x) => x.id === sampleId)
-    if (!s) return
-    const n = noteOn(s.buffer, semitones, keyGain, fx[sampleId])
-    window.setTimeout(() => n.stop(), 450)
+    const v = voiceNoteOn(sampleId, semitones, keyGain)
+    if (v) window.setTimeout(() => v.note.stop(), 450)
   }
 
   // computer keys (A–K row) play the loaded grain, regardless of focus (unless typing)
@@ -772,7 +791,8 @@ export default function App() {
 
         <Keyboard
           samples={samples}
-          instrument={keyInstrument || samples[0]?.id || ''}
+          synths={SYNTHS}
+          instrument={keyInstrument}
           octave={keyOctave}
           gain={keyGain}
           held={held}

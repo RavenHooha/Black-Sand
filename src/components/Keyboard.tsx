@@ -14,6 +14,7 @@ export const KEY_OFFSETS: Record<string, number> = Object.fromEntries(
 
 type Props = {
   samples: { id: string; name: string }[]
+  synths: { id: string; label: string }[]
   instrument: string
   octave: number
   gain: number
@@ -32,16 +33,22 @@ type Props = {
 
 /** A playable keyboard: pick a grain, play it pitched with the mouse or the A–K row. */
 export default function Keyboard({
-  samples, instrument, octave, gain, held, recArmed, recCount,
+  samples, synths, instrument, octave, gain, held, recArmed, recCount,
   onInstrument, onOctave, onGain, onArm, onClearRec, onEdit, onNoteDown, onNoteUp,
 }: Props) {
   return (
     <div className="keyboard">
       <div className="kb-head">
         <h2>Keyboard</h2>
-        <select className="echo-sync" value={instrument} onChange={(e) => onInstrument(e.target.value)} title="Grain to play">
-          {samples.length === 0 && <option value="">— chop a grain first —</option>}
-          {samples.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+        <select className="echo-sync" value={instrument} onChange={(e) => onInstrument(e.target.value)} title="Voice to play">
+          <optgroup label="Synths">
+            {synths.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+          </optgroup>
+          {samples.length > 0 && (
+            <optgroup label="Grains">
+              {samples.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </optgroup>
+          )}
         </select>
         <div className="kb-oct" title="Octave">
           <button className="tbtn" onClick={() => onOctave(-1)}>–</button>
