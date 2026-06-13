@@ -41,10 +41,31 @@ export default function Waveform({ buffer, onSelect }: Props) {
     if (drag) {
       const x1 = Math.min(drag.a, drag.b)
       const x2 = Math.max(drag.a, drag.b)
-      ctx.fillStyle = 'rgba(201,180,138,0.22)'
+
+      // dim the waveform outside the selection so the chosen region pops
+      ctx.fillStyle = 'rgba(5,5,8,0.6)'
+      ctx.fillRect(0, 0, x1, h)
+      ctx.fillRect(x2, 0, w - x2, h)
+
+      // gentle tint inside
+      ctx.fillStyle = 'rgba(233,201,122,0.12)'
       ctx.fillRect(x1, 0, x2 - x1, h)
-      ctx.strokeStyle = '#e9d9b3'
-      ctx.strokeRect(x1 + 0.5, 0.5, x2 - x1 - 1, h - 1)
+
+      // bold, glowing boundary lines
+      ctx.save()
+      ctx.shadowColor = 'rgba(255,200,110,0.9)'
+      ctx.shadowBlur = 10
+      ctx.fillStyle = '#ffe6ad'
+      ctx.fillRect(x1 - 1, 0, 2, h)
+      ctx.fillRect(x2 - 1, 0, 2, h)
+      ctx.restore()
+
+      // grab handles at top + bottom of each boundary
+      ctx.fillStyle = '#ffe6ad'
+      for (const x of [x1, x2]) {
+        ctx.fillRect(x - 3, 0, 6, 5)
+        ctx.fillRect(x - 3, h - 5, 6, 5)
+      }
     }
   }, [buffer, drag])
 
