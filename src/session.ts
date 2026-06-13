@@ -39,6 +39,8 @@ export type Session = {
   synthRes?: number
   synthAttack?: number
   synthRelease?: number
+  synthLfoRate?: number
+  synthLfoDepth?: number
   trackVol?: number[] // per-timeline-track mixer
   trackMute?: boolean[]
   trackSolo?: boolean[]

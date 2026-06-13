@@ -34,6 +34,7 @@ type Snap = {
   drumPattern: boolean[][]; drumGain: number; drumSwing: number
   drumVoiceGain: number[]; drumVoiceTune: number[]; drumVoiceDecay: number[]; recordedNotes: RecordedNote[]
   synthCutoff: number; synthRes: number; synthAttack: number; synthRelease: number
+  synthLfoRate: number; synthLfoDepth: number
   trackVol: number[]; trackMute: boolean[]; trackSolo: boolean[]; keyInstrument: string
 }
 
@@ -95,6 +96,8 @@ export default function App() {
   const [synthRes, setSynthRes] = useState(0)
   const [synthAttack, setSynthAttack] = useState(0)
   const [synthRelease, setSynthRelease] = useState(0)
+  const [synthLfoRate, setSynthLfoRate] = useState(1)
+  const [synthLfoDepth, setSynthLfoDepth] = useState(0)
   const [held, setHeld] = useState<Set<number>>(new Set()) // offsets currently sounding
   const notesRef = useRef<Map<number, Note>>(new Map())
 
@@ -250,7 +253,10 @@ export default function App() {
 
   // --- keyboard ---
   // stash live values so the global key listener can stay stable (no re-subscribe churn)
-  const synthMacros: SynthMacros = { cutoff: synthCutoff, res: synthRes, attack: synthAttack, release: synthRelease }
+  const synthMacros: SynthMacros = {
+    cutoff: synthCutoff, res: synthRes, attack: synthAttack, release: synthRelease,
+    lfoRate: synthLfoRate, lfoDepth: synthLfoDepth,
+  }
   const kbRef = useRef({ samples, fx, keyInstrument, keyOctave, keyGain, recArmed, playing, synthMacros })
   kbRef.current = { samples, fx, keyInstrument, keyOctave, keyGain, recArmed, playing, synthMacros }
   const recordedNotesRef = useRef<RecordedNote[]>(recordedNotes)
@@ -365,7 +371,7 @@ export default function App() {
     return {
       samples, volumes, fx, clips, bpm, gridBeats, loopTl, haze, echo, echoBeats,
       drumPattern, drumGain, drumSwing, drumVoiceGain, drumVoiceTune, drumVoiceDecay,
-      recordedNotes, synthCutoff, synthRes, synthAttack, synthRelease,
+      recordedNotes, synthCutoff, synthRes, synthAttack, synthRelease, synthLfoRate, synthLfoDepth,
       trackVol, trackMute, trackSolo, keyInstrument,
     }
   }
@@ -381,6 +387,7 @@ export default function App() {
     setDrumVoiceGain(s.drumVoiceGain); setDrumVoiceTune(s.drumVoiceTune); setDrumVoiceDecay(s.drumVoiceDecay)
     setRecordedNotes(s.recordedNotes)
     setSynthCutoff(s.synthCutoff); setSynthRes(s.synthRes); setSynthAttack(s.synthAttack); setSynthRelease(s.synthRelease)
+    setSynthLfoRate(s.synthLfoRate); setSynthLfoDepth(s.synthLfoDepth)
     setTrackVol(s.trackVol); setTrackMute(s.trackMute); setTrackSolo(s.trackSolo)
     setKeyInstrument(s.keyInstrument)
   }
@@ -416,7 +423,7 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [samples, volumes, fx, clips, bpm, gridBeats, loopTl, haze, echo, echoBeats,
       drumPattern, drumGain, drumSwing, drumVoiceGain, drumVoiceTune, drumVoiceDecay,
-      recordedNotes, synthCutoff, synthRes, synthAttack, synthRelease,
+      recordedNotes, synthCutoff, synthRes, synthAttack, synthRelease, synthLfoRate, synthLfoDepth,
       trackVol, trackMute, trackSolo, keyInstrument])
 
   // Ctrl/Cmd+Z undo, Ctrl/Cmd+Shift+Z or Ctrl+Y redo
@@ -567,7 +574,7 @@ export default function App() {
     const session: Session = {
       version: 1, bpm, gridBeats, haze, echo, echoBeats, loopTl,
       drumPattern, drumGain, drumSwing, drumVoiceGain, drumVoiceTune, drumVoiceDecay, notes: recordedNotes,
-      synthCutoff, synthRes, synthAttack, synthRelease,
+      synthCutoff, synthRes, synthAttack, synthRelease, synthLfoRate, synthLfoDepth,
       trackVol, trackMute, trackSolo, samples: savedSamples, clips,
     }
     if (await saveTextNative(JSON.stringify(session), 'black-sand-session.blacksand', 'blacksand', 'Black Sand')) return
@@ -616,6 +623,8 @@ export default function App() {
       setSynthRes(session.synthRes ?? 0)
       setSynthAttack(session.synthAttack ?? 0)
       setSynthRelease(session.synthRelease ?? 0)
+      setSynthLfoRate(session.synthLfoRate ?? 1)
+      setSynthLfoDepth(session.synthLfoDepth ?? 0)
       setTrackVol(Array.from({ length: TRACKS }, (_, i) => session.trackVol?.[i] ?? 1))
       setTrackMute(Array.from({ length: TRACKS }, (_, i) => session.trackMute?.[i] ?? false))
       setTrackSolo(Array.from({ length: TRACKS }, (_, i) => session.trackSolo?.[i] ?? false))
@@ -825,10 +834,14 @@ export default function App() {
           synthRes={synthRes}
           synthAttack={synthAttack}
           synthRelease={synthRelease}
+          synthLfoRate={synthLfoRate}
+          synthLfoDepth={synthLfoDepth}
           onSynthCutoff={setSynthCutoff}
           onSynthRes={setSynthRes}
           onSynthAttack={setSynthAttack}
           onSynthRelease={setSynthRelease}
+          onSynthLfoRate={setSynthLfoRate}
+          onSynthLfoDepth={setSynthLfoDepth}
         />
       </main>
 

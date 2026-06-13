@@ -34,10 +34,14 @@ type Props = {
   synthRes: number
   synthAttack: number
   synthRelease: number
+  synthLfoRate: number
+  synthLfoDepth: number
   onSynthCutoff: (v: number) => void
   onSynthRes: (v: number) => void
   onSynthAttack: (v: number) => void
   onSynthRelease: (v: number) => void
+  onSynthLfoRate: (v: number) => void
+  onSynthLfoDepth: (v: number) => void
 }
 
 const ms = (sec: number) => (sec < 1 ? `${Math.round(sec * 1000)}ms` : `${sec.toFixed(2)}s`)
@@ -46,8 +50,8 @@ const ms = (sec: number) => (sec < 1 ? `${Math.round(sec * 1000)}ms` : `${sec.to
 export default function Keyboard({
   samples, synths, instrument, octave, gain, held, recArmed, recCount,
   onInstrument, onOctave, onGain, onArm, onClearRec, onEdit, onNoteDown, onNoteUp,
-  synthCutoff, synthRes, synthAttack, synthRelease,
-  onSynthCutoff, onSynthRes, onSynthAttack, onSynthRelease,
+  synthCutoff, synthRes, synthAttack, synthRelease, synthLfoRate, synthLfoDepth,
+  onSynthCutoff, onSynthRes, onSynthAttack, onSynthRelease, onSynthLfoRate, onSynthLfoDepth,
 }: Props) {
   const isSynth = instrument.startsWith('synth:')
   return (
@@ -110,6 +114,16 @@ export default function Keyboard({
             <span>Rel</span>
             <input type="range" min={0} max={1.5} step={0.005} value={synthRelease} onChange={(e) => onSynthRelease(Number(e.target.value))} />
             <em>{ms(synthRelease)}</em>
+          </label>
+          <label className="fx" title="LFO rate — how fast the filter sweeps">
+            <span>LFO</span>
+            <input type="range" min={0.05} max={10} step={0.05} value={synthLfoRate} onChange={(e) => onSynthLfoRate(Number(e.target.value))} />
+            <em>{synthLfoRate.toFixed(2)}Hz</em>
+          </label>
+          <label className="fx" title="LFO depth — how far the filter sweeps">
+            <span>Sweep</span>
+            <input type="range" min={0} max={1} step={0.01} value={synthLfoDepth} onChange={(e) => onSynthLfoDepth(Number(e.target.value))} />
+            <em>{Math.round(synthLfoDepth * 100)}%</em>
           </label>
         </div>
       )}

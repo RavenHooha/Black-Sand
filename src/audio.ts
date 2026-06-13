@@ -664,8 +664,11 @@ export function getSynth(id: string): SynthPreset | undefined {
 
 // live shaping layered on top of any preset: cutoff is a multiplier, res adds Q,
 // attack/release add seconds.
-export type SynthMacros = { cutoff: number; res: number; attack: number; release: number }
-export const DEFAULT_MACROS: SynthMacros = { cutoff: 1, res: 0, attack: 0, release: 0 }
+export type SynthMacros = {
+  cutoff: number; res: number; attack: number; release: number
+  lfoRate: number; lfoDepth: number // filter LFO: Hz, and 0..1 sweep depth
+}
+export const DEFAULT_MACROS: SynthMacros = { cutoff: 1, res: 0, attack: 0, release: 0, lfoRate: 1, lfoDepth: 0 }
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v))
 
 // semitone 0 = middle C; the keyboard's octave shift moves it in 12s
@@ -677,11 +680,24 @@ function synthGraph(c: BaseAudioContext, preset: SynthPreset, freq: number, out:
   amp.gain.value = 0
   const filter = c.createBiquadFilter()
   filter.type = 'lowpass'
-  filter.frequency.value = clamp(preset.cutoff * m.cutoff, 60, 18000)
+  const baseCutoff = clamp(preset.cutoff * m.cutoff, 60, 18000)
+  filter.frequency.value = baseCutoff
   filter.Q.value = clamp(preset.q + m.res, 0, 24)
   filter.connect(amp).connect(out)
 
   const sources: AudioScheduledSourceNode[] = []
+
+  // filter LFO: a sine swinging the cutoff around its base
+  if (m.lfoDepth > 0) {
+    const lfo = c.createOscillator()
+    lfo.type = 'sine'
+    lfo.frequency.value = clamp(m.lfoRate, 0.02, 20)
+    const lg = c.createGain()
+    lg.gain.value = baseCutoff * Math.min(1, m.lfoDepth) * 0.9
+    lfo.connect(lg).connect(filter.frequency)
+    sources.push(lfo)
+  }
+
   const n = Math.max(1, preset.voices)
   for (let i = 0; i < n; i++) {
     const o = c.createOscillator()
