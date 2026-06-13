@@ -3,7 +3,7 @@ import {
   audioCtx, decodeFile, sliceBuffer, stopAll, startLayer, setHaze as applyHaze,
   setEcho as applyEcho, setEchoTime, startTimeline, stopTimeline, renderMixdown,
   startDrums, stopDrums, updateDrums, currentDrumStep, DRUM_VOICES, DRUM_STEPS,
-  noteOn, Note, Layer, GrainFX, DEFAULT_FX, rateOf,
+  noteOn, Note, startNotes, stopNotes, ScheduledNote, Layer, GrainFX, DEFAULT_FX, rateOf,
 } from './audio'
 import Waveform from './components/Waveform'
 import SampleLibrary, { Sample } from './components/SampleLibrary'
@@ -19,6 +19,8 @@ const DRUM_LABELS = ['Kick', 'Snare', 'Hat', 'Open']
 function uid(): string {
   return (crypto as Crypto & { randomUUID?: () => string }).randomUUID?.() ?? String(Date.now() + Math.random())
 }
+
+type RecordedNote = { id: string; sampleId: string; semitones: number; startSec: number; durSec: number; gain: number }
 
 function emptyDrums(): boolean[][] {
   return DRUM_VOICES.map(() => Array(DRUM_STEPS).fill(false))
@@ -59,6 +61,13 @@ export default function App() {
   const [keyGain, setKeyGain] = useState(0.9)
   const [held, setHeld] = useState<Set<number>>(new Set()) // offsets currently sounding
   const notesRef = useRef<Map<number, Note>>(new Map())
+
+  // keyboard recording
+  const [recArmed, setRecArmed] = useState(false)
+  const [recordedNotes, setRecordedNotes] = useState<RecordedNote[]>([])
+  const recHeldRef = useRef<Map<number, { startedAt: number; startSec: number; sampleId: string; semitones: number; gain: number }>>(new Map())
+  const playOriginRef = useRef(0) // audio-clock time the current play pass started
+  const playLenRef = useRef(0)
 
   // timeline
   const [clips, setClips] = useState<Clip[]>([])
@@ -169,22 +178,56 @@ export default function App() {
 
   // --- keyboard ---
   // stash live values so the global key listener can stay stable (no re-subscribe churn)
-  const kbRef = useRef({ samples, fx, keyInstrument, keyOctave, keyGain })
-  kbRef.current = { samples, fx, keyInstrument, keyOctave, keyGain }
+  const kbRef = useRef({ samples, fx, keyInstrument, keyOctave, keyGain, recArmed, playing })
+  kbRef.current = { samples, fx, keyInstrument, keyOctave, keyGain, recArmed, playing }
+  const recordedNotesRef = useRef<RecordedNote[]>(recordedNotes)
+  recordedNotesRef.current = recordedNotes
+
+  // recorded notes resolved to playable form (buffer + tone/fade), for transport + bounce
+  function resolveNotes(): ScheduledNote[] {
+    return recordedNotesRef.current
+      .map((n) => {
+        const s = kbRef.current.samples.find((x) => x.id === n.sampleId)
+        return s
+          ? { buffer: s.buffer, semitones: n.semitones, startSec: n.startSec, durSec: n.durSec, gain: n.gain, fx: kbRef.current.fx[n.sampleId] }
+          : null
+      })
+      .filter((x): x is NonNullable<typeof x> => !!x)
+  }
 
   function triggerNote(offset: number) {
     if (notesRef.current.has(offset)) return // already held
     const { samples: ss, fx: ff, keyInstrument: ki, keyOctave: ko, keyGain: kg } = kbRef.current
     const inst = ss.find((s) => s.id === ki) ?? ss[0]
     if (!inst) return
-    const note = noteOn(inst.buffer, offset + (ko - 4) * 12, kg, ff[inst.id])
+    const semis = offset + (ko - 4) * 12
+    const note = noteOn(inst.buffer, semis, kg, ff[inst.id])
     notesRef.current.set(offset, note)
     setHeld((prev) => new Set(prev).add(offset))
+    // capture the note start if armed + rolling
+    if (kbRef.current.recArmed && kbRef.current.playing) {
+      const now = audioCtx().currentTime
+      const len = playLenRef.current || 1
+      const startSec = (((now - playOriginRef.current) % len) + len) % len
+      recHeldRef.current.set(offset, { startedAt: now, startSec, sampleId: inst.id, semitones: semis, gain: kg })
+    }
   }
   function releaseNote(offset: number) {
     const note = notesRef.current.get(offset)
     if (note) { note.stop(); notesRef.current.delete(offset) }
     setHeld((prev) => { const next = new Set(prev); next.delete(offset); return next })
+    const rec = recHeldRef.current.get(offset)
+    if (rec) {
+      recHeldRef.current.delete(offset)
+      const durSec = Math.max(0.05, audioCtx().currentTime - rec.startedAt)
+      setRecordedNotes((prev) => [
+        ...prev,
+        { id: uid(), sampleId: rec.sampleId, semitones: rec.semitones, startSec: rec.startSec, durSec, gain: rec.gain },
+      ])
+    }
+  }
+  function clearRecording() {
+    setRecordedNotes([])
   }
 
   // computer keys (A–K row) play the loaded grain, regardless of focus (unless typing)
@@ -225,6 +268,7 @@ export default function App() {
       const s = samples.find((x) => x.id === c.sampleId)
       if (s) end = Math.max(end, c.startSec + clipRealDur(c, s))
     }
+    for (const n of recordedNotes) end = Math.max(end, n.startSec + n.durSec)
     return Math.ceil(end + 0.5)
   }
 
@@ -237,13 +281,16 @@ export default function App() {
       })
       .filter((x): x is NonNullable<typeof x> => !!x)
     const drumsActive = hasDrumSteps()
-    if (buffers.length === 0 && !drumsActive) return
+    if (buffers.length === 0 && !drumsActive && recordedNotes.length === 0) return
 
     const len = lengthSec()
     const loop = loopTl
-    const at = audioCtx().currentTime + 0.1 // shared start so clips + drums lock together
+    const at = audioCtx().currentTime + 0.1 // shared start so clips + drums + notes lock together
     if (buffers.length) startTimeline(buffers, at)
     startDrums(drumPattern, bpm, drumGain, at)
+    startNotes(resolveNotes(), at)
+    playOriginRef.current = at
+    playLenRef.current = len
     setPlaying(true)
 
     const t0 = performance.now()
@@ -252,10 +299,15 @@ export default function App() {
       const elapsed = (performance.now() - t0) / 1000
       setDrumStep(currentDrumStep())
       if (loop) {
-        if (elapsed >= boundary) { if (buffers.length) startTimeline(buffers); boundary += len }
+        if (elapsed >= boundary) {
+          if (buffers.length) startTimeline(buffers)
+          startNotes(resolveNotes()) // re-arm notes (picks up anything just recorded)
+          playOriginRef.current = audioCtx().currentTime + 0.08
+          boundary += len
+        }
         setPlayhead(elapsed % len)
       } else if (elapsed >= len) {
-        stopTimeline(); stopDrums(); setDrumStep(-1)
+        stopTimeline(); stopDrums(); stopNotes(); setDrumStep(-1)
         setPlaying(false); setPlayhead(0); rafRef.current = null
         return
       } else {
@@ -269,6 +321,7 @@ export default function App() {
   function stopTl() {
     stopTimeline()
     stopDrums()
+    stopNotes()
     if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null }
     setPlaying(false)
     setPlayhead(0)
@@ -319,7 +372,7 @@ export default function App() {
     }))
     const session: Session = {
       version: 1, bpm, gridBeats, haze, echo, echoBeats, loopTl,
-      drumPattern, drumGain, samples: savedSamples, clips,
+      drumPattern, drumGain, notes: recordedNotes, samples: savedSamples, clips,
     }
     downloadSession(session, 'black-sand-session')
   }
@@ -355,6 +408,7 @@ export default function App() {
       setEchoBeats(session.echoBeats ?? 0.75)
       setDrumPattern(normalizeDrums(session.drumPattern))
       setDrumGain(session.drumGain ?? 0.9)
+      setRecordedNotes(session.notes ?? [])
       setLooping(new Set())
     } catch (err) {
       alert('Could not open that file — is it a .blacksand session?')
@@ -380,8 +434,8 @@ export default function App() {
       })
       .filter((x): x is NonNullable<typeof x> => !!x)
 
-    if (tlClips.length === 0 && activeLayers.length === 0 && !hasDrumSteps()) {
-      alert('Nothing to bounce yet — arrange some clips, loop a layer, or program a beat first.')
+    if (tlClips.length === 0 && activeLayers.length === 0 && !hasDrumSteps() && recordedNotes.length === 0) {
+      alert('Nothing to bounce yet — arrange some clips, loop a layer, record a part, or program a beat first.')
       return
     }
     setRendering(true)
@@ -389,7 +443,7 @@ export default function App() {
       const mix = await renderMixdown({
         clips: tlClips, layers: activeLayers, haze,
         echo, echoTimeSec, echoFeedback: 0.35,
-        bpm, drums: drumPattern, drumGain,
+        bpm, drums: drumPattern, drumGain, notes: resolveNotes(),
         durationSec: lengthSec(),
       })
       downloadWav(mix, 'black-sand-mix')
@@ -515,9 +569,13 @@ export default function App() {
           octave={keyOctave}
           gain={keyGain}
           held={held}
+          recArmed={recArmed}
+          recCount={recordedNotes.length}
           onInstrument={setKeyInstrument}
           onOctave={(d) => setKeyOctave((o) => Math.max(1, Math.min(7, o + d)))}
           onGain={setKeyGain}
+          onArm={() => setRecArmed((v) => !v)}
+          onClearRec={clearRecording}
           onNoteDown={triggerNote}
           onNoteUp={releaseNote}
         />

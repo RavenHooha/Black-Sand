@@ -18,16 +18,21 @@ type Props = {
   octave: number
   gain: number
   held: Set<number>
+  recArmed: boolean
+  recCount: number
   onInstrument: (id: string) => void
   onOctave: (delta: number) => void
   onGain: (v: number) => void
+  onArm: () => void
+  onClearRec: () => void
   onNoteDown: (offset: number) => void
   onNoteUp: (offset: number) => void
 }
 
 /** A playable keyboard: pick a grain, play it pitched with the mouse or the A–K row. */
 export default function Keyboard({
-  samples, instrument, octave, gain, held, onInstrument, onOctave, onGain, onNoteDown, onNoteUp,
+  samples, instrument, octave, gain, held, recArmed, recCount,
+  onInstrument, onOctave, onGain, onArm, onClearRec, onNoteDown, onNoteUp,
 }: Props) {
   return (
     <div className="keyboard">
@@ -42,6 +47,19 @@ export default function Keyboard({
           <span>Oct {octave}</span>
           <button className="tbtn" onClick={() => onOctave(1)}>+</button>
         </div>
+        <button
+          className={recArmed ? 'tbtn rec on' : 'tbtn rec'}
+          onClick={onArm}
+          title="Arm recording — played notes are captured while the transport rolls"
+        >
+          ● Rec
+        </button>
+        {recCount > 0 && (
+          <span className="tcount">
+            {recCount} note{recCount === 1 ? '' : 's'}
+            <button className="clip-x" onClick={onClearRec} title="Clear the recorded part">×</button>
+          </span>
+        )}
         <label className="haze" title="Keyboard level">
           <span>Level</span>
           <input type="range" min={0} max={1.2} step={0.01} value={gain} onChange={(e) => onGain(Number(e.target.value))} />

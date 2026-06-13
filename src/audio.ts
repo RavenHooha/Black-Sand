@@ -225,6 +225,7 @@ export function stopAll(): void {
   layers.clear()
   stopTimeline()
   stopDrums()
+  stopNotes()
 }
 
 // --- timeline playback: schedule a pass of placed clips through the master bus ---
@@ -280,6 +281,7 @@ export async function renderMixdown(opts: {
   bpm?: number
   drums?: boolean[][]
   drumGain?: number
+  notes?: ScheduledNote[]
   durationSec: number
   tailSec?: number
 }): Promise<AudioBuffer> {
@@ -329,6 +331,11 @@ export async function renderMixdown(opts: {
     g.connect(m)
     try { src.start(0); src.stop(opts.durationSec) } catch { /* noop */ }
     applyFades(g, 0, Infinity, l.gain, l.fx)
+  }
+
+  // recorded keyboard notes, rendered once at their positions
+  if (opts.notes) {
+    for (const n of opts.notes) scheduleGrainNote(oc, m, n, Math.max(0, n.startSec))
   }
 
   // drum pattern, looped across the whole arrangement
@@ -499,4 +506,54 @@ export function noteOn(buffer: AudioBuffer, semitones: number, gain = 0.9, fx?: 
       } catch { /* noop */ }
     },
   }
+}
+
+// --- recorded keyboard notes: schedule fixed-length pitched grains on the clock ---
+export type ScheduledNote = {
+  buffer: AudioBuffer
+  semitones: number
+  startSec: number
+  durSec: number
+  gain: number
+  fx?: GrainFX
+}
+
+/** One recorded note: a pitched, looped grain with an attack + a release at its end. */
+function scheduleGrainNote(c: BaseAudioContext, out: AudioNode, n: ScheduledNote, when: number): AudioBufferSourceNode {
+  const src = c.createBufferSource()
+  src.buffer = n.buffer
+  src.loop = true
+  src.playbackRate.value = Math.pow(2, n.semitones / 12)
+  const filter = c.createBiquadFilter()
+  filter.type = 'lowpass'
+  filter.frequency.value = n.fx?.cutoff ?? CUTOFF_MAX
+  const g = c.createGain()
+  const dur = Math.max(0.05, n.durSec)
+  const a = Math.min(Math.max(0.005, n.fx?.fadeIn ?? 0.01), dur * 0.5)
+  const rel = 0.12
+  const peak = Math.max(0.0001, n.gain)
+  g.gain.setValueAtTime(0.0001, when)
+  g.gain.linearRampToValueAtTime(peak, when + a)
+  g.gain.setValueAtTime(peak, when + dur)
+  g.gain.linearRampToValueAtTime(0.0001, when + dur + rel)
+  src.connect(filter).connect(g).connect(out)
+  src.start(when)
+  try { src.stop(when + dur + rel + 0.03) } catch { /* noop */ }
+  return src
+}
+
+let noteSources: AudioBufferSourceNode[] = []
+
+/** Schedule a pass of recorded notes through the master bus. */
+export function startNotes(notes: ScheduledNote[], startTime?: number): void {
+  stopNotes()
+  const c = audioCtx()
+  const m = ensureMaster()
+  const t0 = startTime ?? c.currentTime + 0.08
+  for (const n of notes) noteSources.push(scheduleGrainNote(c, m, n, t0 + Math.max(0, n.startSec)))
+}
+
+export function stopNotes(): void {
+  noteSources.forEach((s) => { try { s.stop() } catch { /* noop */ } })
+  noteSources = []
 }

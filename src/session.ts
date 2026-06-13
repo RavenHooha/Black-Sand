@@ -17,6 +17,9 @@ export type SavedClip = {
   offset?: number // trim in-point, buffer seconds
   length?: number // trimmed length, buffer seconds
 }
+export type SavedNote = {
+  id: string; sampleId: string; semitones: number; startSec: number; durSec: number; gain: number
+}
 
 export type Session = {
   version: 1
@@ -27,6 +30,8 @@ export type Session = {
   echoBeats?: number // echo note division in beats
   drumPattern?: boolean[][] // drum-machine grid (voices x steps)
   drumGain?: number
+  drumSwing?: number // 0..~0.6 — delay on the off-beat 16ths
+  notes?: SavedNote[] // recorded keyboard part
   loopTl: boolean
   samples: SavedSample[]
   clips: SavedClip[]

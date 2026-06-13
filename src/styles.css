@@ -181,6 +181,9 @@ main { flex-direction: column; }
 .kb-head .haze { margin-left: auto; }
 .kb-oct { display: flex; align-items: center; gap: 8px; font-size: 11px; letter-spacing: 1px; color: #8a8578; text-transform: uppercase; }
 .kb-oct .tbtn { padding: 4px 10px; }
+.tbtn.rec { color: #c98a8a; }
+.tbtn.rec.on { background: #3a1f1f; border-color: #6e3636; color: #f0c9c9; box-shadow: 0 0 8px rgba(217, 83, 79, 0.4); }
+.kb-head .tcount { display: flex; align-items: center; gap: 2px; }
 
 .piano { display: flex; gap: 3px; height: 96px; user-select: none; max-width: 560px; }
 .wkey {
