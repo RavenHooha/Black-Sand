@@ -34,6 +34,7 @@ Then open the URL it prints (usually http://localhost:5173).
   - **Drag clips** to move them across time/tracks; **drag a clip's edges** to trim its in/out points
   - **▶ Play** sweeps a playhead; **↻ Loop** cycles the whole arrangement; **×** removes a clip
 - **Export** — bounce the whole arrangement (clips, held layers, haze tail) to a `.wav`
+- **Undo / redo** — full-document history (Ctrl+Z / Ctrl+Shift+Z, or the ↶ ↷ buttons); rapid edits collapse into one step
 - **Stop all** kills everything playing
 - **Save / Open** — write the whole session (grains + arrangement + settings) to a portable `.blacksand` file and load it back
 
@@ -55,7 +56,7 @@ WebView2 — same as the other RavenHooha desktop apps.
 ## Next (the roadmap)
 
 - Multiple recorded parts / a clip-based arranger for keyboard takes
-- An undo/redo history
+- Waveform thumbnails on grains + clips
 
 ## Stack
 

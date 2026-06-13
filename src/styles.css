@@ -28,6 +28,8 @@ button, .import {
   font: inherit; transition: background .12s, border-color .12s;
 }
 button:hover, .import:hover { background: #1d1d25; border-color: #36363f; }
+button:disabled { opacity: 0.38; cursor: default; }
+button:disabled:hover { background: #15151b; border-color: #28282f; }
 .import:has(input:disabled) { opacity: .6; cursor: default; }
 
 main { flex: 1; display: flex; min-height: 0; overflow-y: auto; }

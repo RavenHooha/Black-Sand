@@ -24,6 +24,16 @@ function uid(): string {
 
 type RecordedNote = { id: string; sampleId: string; semitones: number; startSec: number; durSec: number; gain: number }
 
+// A snapshot of the whole editable document, for undo/redo. Buffers are shared
+// (immutable) refs; everything else is replaced immutably by handlers, so a
+// shallow snapshot is safe to stash and restore.
+type Snap = {
+  samples: Sample[]; volumes: Record<string, number>; fx: Record<string, GrainFX>; clips: Clip[]
+  bpm: number; gridBeats: number; loopTl: boolean; haze: number; echo: number; echoBeats: number
+  drumPattern: boolean[][]; drumGain: number; drumSwing: number; recordedNotes: RecordedNote[]
+  trackVol: number[]; trackMute: boolean[]; trackSolo: boolean[]; keyInstrument: string
+}
+
 function emptyDrums(): boolean[][] {
   return DRUM_VOICES.map(() => Array(DRUM_STEPS).fill(false))
 }
@@ -86,6 +96,14 @@ export default function App() {
   const [rendering, setRendering] = useState(false)
   const rafRef = useRef<number | null>(null)
   const openInputRef = useRef<HTMLInputElement>(null)
+
+  // undo / redo history
+  const undoRef = useRef<Snap[]>([])
+  const redoRef = useRef<Snap[]>([])
+  const lastDocRef = useRef<Snap | null>(null)
+  const applyingRef = useRef(false) // true while restoring a snapshot (skip the history push)
+  const histMountRef = useRef(false)
+  const [, setHistVer] = useState(0)
 
   async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
@@ -298,6 +316,72 @@ export default function App() {
     }
   }, [])
 
+  // --- undo / redo ---
+  function docSnapshot(): Snap {
+    return {
+      samples, volumes, fx, clips, bpm, gridBeats, loopTl, haze, echo, echoBeats,
+      drumPattern, drumGain, drumSwing, recordedNotes, trackVol, trackMute, trackSolo, keyInstrument,
+    }
+  }
+  if (lastDocRef.current === null) lastDocRef.current = docSnapshot()
+
+  function applyDoc(s: Snap) {
+    applyingRef.current = true
+    setSamples(s.samples); setVolumes(s.volumes); setFx(s.fx); setClips(s.clips)
+    setBpm(s.bpm); setGridBeats(s.gridBeats); setLoopTl(s.loopTl)
+    setHaze(s.haze); applyHaze(s.haze)
+    setEchoAmt(s.echo); applyEcho(s.echo); setEchoBeats(s.echoBeats)
+    setDrumPattern(s.drumPattern); setDrumGain(s.drumGain); setDrumSwing(s.drumSwing)
+    setRecordedNotes(s.recordedNotes)
+    setTrackVol(s.trackVol); setTrackMute(s.trackMute); setTrackSolo(s.trackSolo)
+    setKeyInstrument(s.keyInstrument)
+  }
+  function undo() {
+    if (!undoRef.current.length) return
+    const prev = undoRef.current.pop()!
+    redoRef.current.push(lastDocRef.current!)
+    lastDocRef.current = prev
+    applyDoc(prev)
+    setHistVer((v) => v + 1)
+  }
+  function redo() {
+    if (!redoRef.current.length) return
+    const next = redoRef.current.pop()!
+    undoRef.current.push(lastDocRef.current!)
+    lastDocRef.current = next
+    applyDoc(next)
+    setHistVer((v) => v + 1)
+  }
+
+  // capture history when the document settles (rapid edits collapse into one step)
+  useEffect(() => {
+    if (!histMountRef.current) { histMountRef.current = true; lastDocRef.current = docSnapshot(); return }
+    if (applyingRef.current) { applyingRef.current = false; lastDocRef.current = docSnapshot(); return }
+    const id = window.setTimeout(() => {
+      undoRef.current.push(lastDocRef.current!)
+      if (undoRef.current.length > 60) undoRef.current.shift()
+      redoRef.current = []
+      lastDocRef.current = docSnapshot()
+      setHistVer((v) => v + 1)
+    }, 450)
+    return () => window.clearTimeout(id)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [samples, volumes, fx, clips, bpm, gridBeats, loopTl, haze, echo, echoBeats,
+      drumPattern, drumGain, drumSwing, recordedNotes, trackVol, trackMute, trackSolo, keyInstrument])
+
+  // Ctrl/Cmd+Z undo, Ctrl/Cmd+Shift+Z or Ctrl+Y redo
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey)) return
+      const k = e.key.toLowerCase()
+      if (k === 'z' && !e.shiftKey) { e.preventDefault(); undo() }
+      else if ((k === 'z' && e.shiftKey) || k === 'y') { e.preventDefault(); redo() }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   // --- timeline ---
   // wall-clock length of a placed clip: trimmed length / pitch rate
   function clipRealDur(c: Clip, s: Sample): number {
@@ -446,6 +530,10 @@ export default function App() {
       const restored: Sample[] = session.samples
         .filter((s) => buffers.has(s.id))
         .map((s) => ({ id: s.id, name: s.name, buffer: buffers.get(s.id)! }))
+      // a loaded project starts a fresh history (don't undo across the load)
+      applyingRef.current = true
+      undoRef.current = []
+      redoRef.current = []
       setSamples(restored)
       setVolumes(Object.fromEntries(session.samples.map((s) => [s.id, s.volume] as [string, number])))
       setFx(Object.fromEntries(session.samples.map((s) => [
@@ -538,6 +626,8 @@ export default function App() {
       <header>
         <h1>BLACK SAND</h1>
         <div className="controls">
+          <button onClick={undo} disabled={undoRef.current.length === 0} title="Undo (Ctrl+Z)">↶</button>
+          <button onClick={redo} disabled={redoRef.current.length === 0} title="Redo (Ctrl+Shift+Z)">↷</button>
           <label className="haze" title="Reverb haze over everything">
             <span>Haze</span>
             <input type="range" min={0} max={1} step={0.01} value={haze} onChange={(e) => onHaze(Number(e.target.value))} />
