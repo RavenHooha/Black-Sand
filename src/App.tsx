@@ -3,7 +3,7 @@ import {
   audioCtx, decodeFile, sliceBuffer, reverseBuffer, stopAll, startLayer, setHaze as applyHaze,
   setEcho as applyEcho, setEchoTime, startTimeline, stopTimeline, renderMixdown,
   startDrums, stopDrums, updateDrums, currentDrumStep, DRUM_VOICES, DRUM_STEPS,
-  noteOn, Note, synthNoteOn, SYNTHS, getSynth, startNotes, stopNotes, ScheduledNote,
+  noteOn, Note, synthNoteOn, SYNTHS, getSynth, SynthMacros, startNotes, stopNotes, ScheduledNote,
   Layer, GrainFX, DEFAULT_FX, rateOf,
 } from './audio'
 import Waveform from './components/Waveform'
@@ -33,6 +33,7 @@ type Snap = {
   bpm: number; gridBeats: number; loopTl: boolean; haze: number; echo: number; echoBeats: number
   drumPattern: boolean[][]; drumGain: number; drumSwing: number
   drumVoiceGain: number[]; drumVoiceTune: number[]; drumVoiceDecay: number[]; recordedNotes: RecordedNote[]
+  synthCutoff: number; synthRes: number; synthAttack: number; synthRelease: number
   trackVol: number[]; trackMute: boolean[]; trackSolo: boolean[]; keyInstrument: string
 }
 
@@ -89,6 +90,11 @@ export default function App() {
   const [keyInstrument, setKeyInstrument] = useState('synth:pad') // a synth so the keys play before any chop
   const [keyOctave, setKeyOctave] = useState(4)
   const [keyGain, setKeyGain] = useState(0.9)
+  // live synth shaping (layered on the selected preset)
+  const [synthCutoff, setSynthCutoff] = useState(1)
+  const [synthRes, setSynthRes] = useState(0)
+  const [synthAttack, setSynthAttack] = useState(0)
+  const [synthRelease, setSynthRelease] = useState(0)
   const [held, setHeld] = useState<Set<number>>(new Set()) // offsets currently sounding
   const notesRef = useRef<Map<number, Note>>(new Map())
 
@@ -244,8 +250,9 @@ export default function App() {
 
   // --- keyboard ---
   // stash live values so the global key listener can stay stable (no re-subscribe churn)
-  const kbRef = useRef({ samples, fx, keyInstrument, keyOctave, keyGain, recArmed, playing })
-  kbRef.current = { samples, fx, keyInstrument, keyOctave, keyGain, recArmed, playing }
+  const synthMacros: SynthMacros = { cutoff: synthCutoff, res: synthRes, attack: synthAttack, release: synthRelease }
+  const kbRef = useRef({ samples, fx, keyInstrument, keyOctave, keyGain, recArmed, playing, synthMacros })
+  kbRef.current = { samples, fx, keyInstrument, keyOctave, keyGain, recArmed, playing, synthMacros }
   const recordedNotesRef = useRef<RecordedNote[]>(recordedNotes)
   recordedNotesRef.current = recordedNotes
 
@@ -257,7 +264,7 @@ export default function App() {
         if (!r) return null
         const base = { semitones: n.semitones, startSec: n.startSec, durSec: n.durSec, gain: n.gain }
         return r.kind === 'synth'
-          ? { ...base, synth: r.preset }
+          ? { ...base, synth: r.preset, macros: kbRef.current.synthMacros }
           : { ...base, buffer: r.sample.buffer, fx: kbRef.current.fx[r.sample.id] }
       })
       .filter((x): x is ScheduledNote => !!x)
@@ -268,7 +275,7 @@ export default function App() {
     const r = resolveInstrument(instrument, kbRef.current.samples)
     if (!r) return null
     return r.kind === 'synth'
-      ? { note: synthNoteOn(r.preset, semitones, gain), recId: r.preset.id }
+      ? { note: synthNoteOn(r.preset, semitones, gain, kbRef.current.synthMacros), recId: r.preset.id }
       : { note: noteOn(r.sample.buffer, semitones, gain, kbRef.current.fx[r.sample.id]), recId: r.sample.id }
   }
 
@@ -358,7 +365,8 @@ export default function App() {
     return {
       samples, volumes, fx, clips, bpm, gridBeats, loopTl, haze, echo, echoBeats,
       drumPattern, drumGain, drumSwing, drumVoiceGain, drumVoiceTune, drumVoiceDecay,
-      recordedNotes, trackVol, trackMute, trackSolo, keyInstrument,
+      recordedNotes, synthCutoff, synthRes, synthAttack, synthRelease,
+      trackVol, trackMute, trackSolo, keyInstrument,
     }
   }
   if (lastDocRef.current === null) lastDocRef.current = docSnapshot()
@@ -372,6 +380,7 @@ export default function App() {
     setDrumPattern(s.drumPattern); setDrumGain(s.drumGain); setDrumSwing(s.drumSwing)
     setDrumVoiceGain(s.drumVoiceGain); setDrumVoiceTune(s.drumVoiceTune); setDrumVoiceDecay(s.drumVoiceDecay)
     setRecordedNotes(s.recordedNotes)
+    setSynthCutoff(s.synthCutoff); setSynthRes(s.synthRes); setSynthAttack(s.synthAttack); setSynthRelease(s.synthRelease)
     setTrackVol(s.trackVol); setTrackMute(s.trackMute); setTrackSolo(s.trackSolo)
     setKeyInstrument(s.keyInstrument)
   }
@@ -407,7 +416,8 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [samples, volumes, fx, clips, bpm, gridBeats, loopTl, haze, echo, echoBeats,
       drumPattern, drumGain, drumSwing, drumVoiceGain, drumVoiceTune, drumVoiceDecay,
-      recordedNotes, trackVol, trackMute, trackSolo, keyInstrument])
+      recordedNotes, synthCutoff, synthRes, synthAttack, synthRelease,
+      trackVol, trackMute, trackSolo, keyInstrument])
 
   // Ctrl/Cmd+Z undo, Ctrl/Cmd+Shift+Z or Ctrl+Y redo
   useEffect(() => {
@@ -557,6 +567,7 @@ export default function App() {
     const session: Session = {
       version: 1, bpm, gridBeats, haze, echo, echoBeats, loopTl,
       drumPattern, drumGain, drumSwing, drumVoiceGain, drumVoiceTune, drumVoiceDecay, notes: recordedNotes,
+      synthCutoff, synthRes, synthAttack, synthRelease,
       trackVol, trackMute, trackSolo, samples: savedSamples, clips,
     }
     if (await saveTextNative(JSON.stringify(session), 'black-sand-session.blacksand', 'blacksand', 'Black Sand')) return
@@ -601,6 +612,10 @@ export default function App() {
       setDrumVoiceTune(DRUM_VOICES.map((_, i) => session.drumVoiceTune?.[i] ?? 0))
       setDrumVoiceDecay(DRUM_VOICES.map((_, i) => session.drumVoiceDecay?.[i] ?? 1))
       setRecordedNotes(session.notes ?? [])
+      setSynthCutoff(session.synthCutoff ?? 1)
+      setSynthRes(session.synthRes ?? 0)
+      setSynthAttack(session.synthAttack ?? 0)
+      setSynthRelease(session.synthRelease ?? 0)
       setTrackVol(Array.from({ length: TRACKS }, (_, i) => session.trackVol?.[i] ?? 1))
       setTrackMute(Array.from({ length: TRACKS }, (_, i) => session.trackMute?.[i] ?? false))
       setTrackSolo(Array.from({ length: TRACKS }, (_, i) => session.trackSolo?.[i] ?? false))
@@ -806,6 +821,14 @@ export default function App() {
           onEdit={() => setShowRoll(true)}
           onNoteDown={triggerNote}
           onNoteUp={releaseNote}
+          synthCutoff={synthCutoff}
+          synthRes={synthRes}
+          synthAttack={synthAttack}
+          synthRelease={synthRelease}
+          onSynthCutoff={setSynthCutoff}
+          onSynthRes={setSynthRes}
+          onSynthAttack={setSynthAttack}
+          onSynthRelease={setSynthRelease}
         />
       </main>
 

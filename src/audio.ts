@@ -662,17 +662,23 @@ export function getSynth(id: string): SynthPreset | undefined {
   return SYNTHS.find((s) => s.id === id)
 }
 
+// live shaping layered on top of any preset: cutoff is a multiplier, res adds Q,
+// attack/release add seconds.
+export type SynthMacros = { cutoff: number; res: number; attack: number; release: number }
+export const DEFAULT_MACROS: SynthMacros = { cutoff: 1, res: 0, attack: 0, release: 0 }
+const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v))
+
 // semitone 0 = middle C; the keyboard's octave shift moves it in 12s
 const synthFreq = (semitones: number) => 261.63 * Math.pow(2, semitones / 12)
 
 /** Build a preset's oscillator graph at a frequency; returns the amp node + all sources. */
-function synthGraph(c: BaseAudioContext, preset: SynthPreset, freq: number, out: AudioNode) {
+function synthGraph(c: BaseAudioContext, preset: SynthPreset, freq: number, out: AudioNode, m: SynthMacros = DEFAULT_MACROS) {
   const amp = c.createGain()
   amp.gain.value = 0
   const filter = c.createBiquadFilter()
   filter.type = 'lowpass'
-  filter.frequency.value = preset.cutoff
-  filter.Q.value = preset.q
+  filter.frequency.value = clamp(preset.cutoff * m.cutoff, 60, 18000)
+  filter.Q.value = clamp(preset.q + m.res, 0, 24)
   filter.connect(amp).connect(out)
 
   const sources: AudioScheduledSourceNode[] = []
@@ -702,12 +708,14 @@ function synthGraph(c: BaseAudioContext, preset: SynthPreset, freq: number, out:
 }
 
 /** Play a synth voice and hold it until stopped (attack/release envelope). */
-export function synthNoteOn(preset: SynthPreset, semitones: number, gain = 0.8): Note {
+export function synthNoteOn(preset: SynthPreset, semitones: number, gain = 0.8, m: SynthMacros = DEFAULT_MACROS): Note {
   const c = audioCtx()
-  const { amp, sources } = synthGraph(c, preset, synthFreq(semitones), ensureMaster())
+  const { amp, sources } = synthGraph(c, preset, synthFreq(semitones), ensureMaster(), m)
+  const attack = preset.attack + m.attack
+  const release = preset.release + m.release
   const t = c.currentTime
   amp.gain.setValueAtTime(0.0001, t)
-  amp.gain.linearRampToValueAtTime(Math.max(0.0001, gain), t + preset.attack)
+  amp.gain.linearRampToValueAtTime(Math.max(0.0001, gain), t + attack)
   sources.forEach((s) => s.start(t))
   let stopped = false
   return {
@@ -718,8 +726,8 @@ export function synthNoteOn(preset: SynthPreset, semitones: number, gain = 0.8):
       try {
         amp.gain.cancelScheduledValues(now)
         amp.gain.setValueAtTime(amp.gain.value, now)
-        amp.gain.linearRampToValueAtTime(0.0001, now + preset.release)
-        sources.forEach((s) => { try { s.stop(now + preset.release + 0.03) } catch { /* noop */ } })
+        amp.gain.linearRampToValueAtTime(0.0001, now + release)
+        sources.forEach((s) => { try { s.stop(now + release + 0.03) } catch { /* noop */ } })
       } catch { /* noop */ }
     },
   }
@@ -733,6 +741,7 @@ export type ScheduledNote = {
   gain: number
   buffer?: AudioBuffer // grain note
   synth?: SynthPreset  // synth note
+  macros?: SynthMacros // live synth shaping
   fx?: GrainFX
 }
 
@@ -763,10 +772,11 @@ function scheduleGrainNote(c: BaseAudioContext, out: AudioNode, n: ScheduledNote
 /** One recorded synth note: a preset voice with a fixed duration + release. */
 function scheduleSynthNote(c: BaseAudioContext, out: AudioNode, n: ScheduledNote, when: number): AudioScheduledSourceNode[] {
   const preset = n.synth!
-  const { amp, sources } = synthGraph(c, preset, synthFreq(n.semitones), out)
+  const m = n.macros ?? DEFAULT_MACROS
+  const { amp, sources } = synthGraph(c, preset, synthFreq(n.semitones), out, m)
   const dur = Math.max(0.05, n.durSec)
-  const a = Math.min(preset.attack, dur * 0.5)
-  const rel = preset.release
+  const a = Math.min(preset.attack + m.attack, dur * 0.5)
+  const rel = preset.release + m.release
   const peak = Math.max(0.0001, n.gain)
   amp.gain.setValueAtTime(0.0001, when)
   amp.gain.linearRampToValueAtTime(peak, when + a)

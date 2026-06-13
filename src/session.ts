@@ -35,6 +35,10 @@ export type Session = {
   drumVoiceTune?: number[] // per-voice pitch (semitones)
   drumVoiceDecay?: number[] // per-voice decay multiplier
   notes?: SavedNote[] // recorded keyboard part
+  synthCutoff?: number // live synth shaping
+  synthRes?: number
+  synthAttack?: number
+  synthRelease?: number
   trackVol?: number[] // per-timeline-track mixer
   trackMute?: boolean[]
   trackSolo?: boolean[]

@@ -29,13 +29,27 @@ type Props = {
   onEdit: () => void
   onNoteDown: (offset: number) => void
   onNoteUp: (offset: number) => void
+  // synth shaping (shown when a synth voice is selected)
+  synthCutoff: number
+  synthRes: number
+  synthAttack: number
+  synthRelease: number
+  onSynthCutoff: (v: number) => void
+  onSynthRes: (v: number) => void
+  onSynthAttack: (v: number) => void
+  onSynthRelease: (v: number) => void
 }
+
+const ms = (sec: number) => (sec < 1 ? `${Math.round(sec * 1000)}ms` : `${sec.toFixed(2)}s`)
 
 /** A playable keyboard: pick a grain, play it pitched with the mouse or the A–K row. */
 export default function Keyboard({
   samples, synths, instrument, octave, gain, held, recArmed, recCount,
   onInstrument, onOctave, onGain, onArm, onClearRec, onEdit, onNoteDown, onNoteUp,
+  synthCutoff, synthRes, synthAttack, synthRelease,
+  onSynthCutoff, onSynthRes, onSynthAttack, onSynthRelease,
 }: Props) {
+  const isSynth = instrument.startsWith('synth:')
   return (
     <div className="keyboard">
       <div className="kb-head">
@@ -74,6 +88,31 @@ export default function Keyboard({
           <input type="range" min={0} max={1.2} step={0.01} value={gain} onChange={(e) => onGain(Number(e.target.value))} />
         </label>
       </div>
+
+      {isSynth && (
+        <div className="kb-synth">
+          <label className="fx" title="Filter cutoff — brightness">
+            <span>Cutoff</span>
+            <input type="range" min={0.1} max={4} step={0.01} value={synthCutoff} onChange={(e) => onSynthCutoff(Number(e.target.value))} />
+            <em>{synthCutoff.toFixed(2)}×</em>
+          </label>
+          <label className="fx" title="Resonance — filter emphasis">
+            <span>Res</span>
+            <input type="range" min={0} max={14} step={0.1} value={synthRes} onChange={(e) => onSynthRes(Number(e.target.value))} />
+            <em>{synthRes.toFixed(1)}</em>
+          </label>
+          <label className="fx" title="Attack — fade-in time">
+            <span>Att</span>
+            <input type="range" min={0} max={1.2} step={0.005} value={synthAttack} onChange={(e) => onSynthAttack(Number(e.target.value))} />
+            <em>{ms(synthAttack)}</em>
+          </label>
+          <label className="fx" title="Release — tail length after key-up">
+            <span>Rel</span>
+            <input type="range" min={0} max={1.5} step={0.005} value={synthRelease} onChange={(e) => onSynthRelease(Number(e.target.value))} />
+            <em>{ms(synthRelease)}</em>
+          </label>
+        </div>
+      )}
 
       <div className="piano" onMouseLeave={() => held.forEach((o) => onNoteUp(o))}>
         {WHITES.map((off) => (
