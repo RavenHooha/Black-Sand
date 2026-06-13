@@ -107,9 +107,8 @@ export function downloadWav(buffer: AudioBuffer, filename: string): void {
   URL.revokeObjectURL(url)
 }
 
-/** Read a .blacksand file and decode its grains back into AudioBuffers. */
-export async function readSessionFile(file: File): Promise<{ session: Session; buffers: Map<string, AudioBuffer> }> {
-  const text = await file.text()
+/** Parse + decode a .blacksand session from its raw JSON text. */
+export async function readSessionText(text: string): Promise<{ session: Session; buffers: Map<string, AudioBuffer> }> {
   const session = JSON.parse(text) as Session
   if (!session || session.version !== 1 || !Array.isArray(session.samples)) {
     throw new Error('Not a valid Black Sand session.')
@@ -120,4 +119,9 @@ export async function readSessionFile(file: File): Promise<{ session: Session; b
     buffers.set(s.id, buf)
   }
   return { session, buffers }
+}
+
+/** Read a .blacksand File (browser) and decode its grains back into AudioBuffers. */
+export async function readSessionFile(file: File): Promise<{ session: Session; buffers: Map<string, AudioBuffer> }> {
+  return readSessionText(await file.text())
 }

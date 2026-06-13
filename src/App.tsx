@@ -10,7 +10,8 @@ import SampleLibrary, { Sample } from './components/SampleLibrary'
 import Timeline, { Clip } from './components/Timeline'
 import DrumMachine from './components/DrumMachine'
 import Keyboard, { KEY_OFFSETS } from './components/Keyboard'
-import { encodeWav, bufToBase64, downloadSession, downloadWav, readSessionFile, Session, SavedSample } from './session'
+import { encodeWav, bufToBase64, downloadSession, downloadWav, readSessionText, Session, SavedSample } from './session'
+import { isDesktop, saveTextNative, saveBytesNative, openTextNative } from './desktop'
 
 const TRACKS = 5
 const PX_PER_SEC = 80
@@ -79,6 +80,7 @@ export default function App() {
   const [gridBeats, setGridBeats] = useState(0.5) // snap step in beats; 0 = off
   const [rendering, setRendering] = useState(false)
   const rafRef = useRef<number | null>(null)
+  const openInputRef = useRef<HTMLInputElement>(null)
 
   async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
@@ -356,7 +358,7 @@ export default function App() {
   }
 
   // --- save / load ---
-  function saveProject() {
+  async function saveProject() {
     if (samples.length === 0) {
       alert('Nothing to save yet — chop a grain or two first.')
       return
@@ -375,15 +377,14 @@ export default function App() {
       version: 1, bpm, gridBeats, haze, echo, echoBeats, loopTl,
       drumPattern, drumGain, drumSwing, notes: recordedNotes, samples: savedSamples, clips,
     }
+    if (await saveTextNative(JSON.stringify(session), 'black-sand-session.blacksand', 'blacksand', 'Black Sand')) return
     downloadSession(session, 'black-sand-session')
   }
 
-  async function loadProject(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    if (!file) return
+  async function loadFromText(text: string) {
     try {
       stopEverything()
-      const { session, buffers } = await readSessionFile(file)
+      const { session, buffers } = await readSessionText(text)
       const restored: Sample[] = session.samples
         .filter((s) => buffers.has(s.id))
         .map((s) => ({ id: s.id, name: s.name, buffer: buffers.get(s.id)! }))
@@ -415,9 +416,22 @@ export default function App() {
     } catch (err) {
       alert('Could not open that file — is it a .blacksand session?')
       console.error(err)
-    } finally {
-      e.target.value = ''
     }
+  }
+
+  // Open: native dialog on desktop, hidden file input on the web
+  async function openProject() {
+    if (isDesktop) {
+      const text = await openTextNative('blacksand', 'Black Sand')
+      if (text !== null) await loadFromText(text)
+    } else {
+      openInputRef.current?.click()
+    }
+  }
+  async function onOpenInput(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    try { await loadFromText(await file.text()) } finally { e.target.value = '' }
   }
 
   // --- export / bounce ---
@@ -448,7 +462,8 @@ export default function App() {
         bpm, drums: drumPattern, drumGain, drumSwing, notes: resolveNotes(),
         durationSec: lengthSec(),
       })
-      downloadWav(mix, 'black-sand-mix')
+      const wav = new Uint8Array(encodeWav(mix))
+      if (!(await saveBytesNative(wav, 'black-sand-mix.wav', 'wav', 'WAV audio'))) downloadWav(mix, 'black-sand-mix')
     } catch (err) {
       alert('Render failed — see console.')
       console.error(err)
@@ -481,10 +496,8 @@ export default function App() {
             {busy ? 'Loading…' : 'Import track'}
             <input type="file" accept="audio/*" onChange={onFile} hidden disabled={busy} />
           </label>
-          <label className="import" title="Open a .blacksand session">
-            Open
-            <input type="file" accept=".blacksand,application/json" onChange={loadProject} hidden />
-          </label>
+          <button className="import" onClick={openProject} title="Open a .blacksand session">Open</button>
+          <input ref={openInputRef} type="file" accept=".blacksand,application/json" onChange={onOpenInput} hidden />
           <button onClick={saveProject} title="Save session to a .blacksand file">Save</button>
           <button onClick={exportMix} disabled={rendering} title="Bounce the arrangement to a .wav">
             {rendering ? 'Bouncing…' : 'Export'}
