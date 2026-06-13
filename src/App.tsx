@@ -1,0 +1,311 @@
+import React, { useRef, useState } from 'react'
+import {
+  decodeFile, sliceBuffer, stopAll, startLayer, setHaze as applyHaze,
+  startTimeline, stopTimeline, Layer, GrainFX, DEFAULT_FX, rateOf,
+} from './audio'
+import Waveform from './components/Waveform'
+import SampleLibrary, { Sample } from './components/SampleLibrary'
+import Timeline, { Clip } from './components/Timeline'
+import { encodeWav, bufToBase64, downloadSession, readSessionFile, Session, SavedSample } from './session'
+
+const TRACKS = 5
+const PX_PER_SEC = 80
+
+function uid(): string {
+  return (crypto as Crypto & { randomUUID?: () => string }).randomUUID?.() ?? String(Date.now() + Math.random())
+}
+
+export default function App() {
+  // source + chopping
+  const [source, setSource] = useState<AudioBuffer | null>(null)
+  const [sourceName, setSourceName] = useState('')
+  const [pending, setPending] = useState<{ start: number; end: number } | null>(null)
+  const [samples, setSamples] = useState<Sample[]>([])
+  const [busy, setBusy] = useState(false)
+
+  // layering
+  const layersRef = useRef<Map<string, Layer>>(new Map())
+  const [looping, setLooping] = useState<Set<string>>(new Set())
+  const [volumes, setVolumes] = useState<Record<string, number>>({})
+  const [fx, setFx] = useState<Record<string, GrainFX>>({})
+  const [haze, setHaze] = useState(0.25)
+
+  // timeline
+  const [clips, setClips] = useState<Clip[]>([])
+  const [playing, setPlaying] = useState(false)
+  const [playhead, setPlayhead] = useState(0)
+  const [loopTl, setLoopTl] = useState(true)
+  const [bpm, setBpm] = useState(90)
+  const [gridBeats, setGridBeats] = useState(0.5) // snap step in beats; 0 = off
+  const rafRef = useRef<number | null>(null)
+
+  async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setBusy(true)
+    try {
+      const buf = await decodeFile(file)
+      setSource(buf)
+      setSourceName(file.name.replace(/\.[^.]+$/, ''))
+      setPending(null)
+    } catch (err) {
+      alert('Could not decode that file. Try a wav / mp3 / flac.')
+      console.error(err)
+    } finally {
+      setBusy(false)
+      e.target.value = ''
+    }
+  }
+
+  function chop() {
+    if (!source || !pending) return
+    const grain = sliceBuffer(source, pending.start, pending.end)
+    const n = samples.filter((s) => s.name.startsWith(sourceName)).length + 1
+    setSamples([{ id: uid(), name: `${sourceName} ·${n}`, buffer: grain }, ...samples])
+    setPending(null)
+  }
+
+  function toggleLoop(s: Sample) {
+    const layers = layersRef.current
+    const existing = layers.get(s.id)
+    if (existing) {
+      existing.stop()
+      layers.delete(s.id)
+      setLooping((prev) => { const next = new Set(prev); next.delete(s.id); return next })
+    } else {
+      layers.set(s.id, startLayer(s.buffer, volumes[s.id] ?? 0.8, fx[s.id]))
+      setLooping((prev) => new Set(prev).add(s.id))
+    }
+  }
+
+  function onVolume(s: Sample, v: number) {
+    setVolumes((prev) => ({ ...prev, [s.id]: v }))
+    layersRef.current.get(s.id)?.setGain(v)
+  }
+
+  function onPitch(s: Sample, semitones: number) {
+    setFx((prev) => ({ ...prev, [s.id]: { ...(prev[s.id] ?? DEFAULT_FX), pitch: semitones } }))
+    layersRef.current.get(s.id)?.setPitch(semitones)
+  }
+
+  function onCutoff(s: Sample, hz: number) {
+    setFx((prev) => ({ ...prev, [s.id]: { ...(prev[s.id] ?? DEFAULT_FX), cutoff: hz } }))
+    layersRef.current.get(s.id)?.setCutoff(hz)
+  }
+
+  function onHaze(v: number) {
+    setHaze(v)
+    applyHaze(v)
+  }
+
+  // --- timeline ---
+  // wall-clock length of a placed clip: trimmed length / pitch rate
+  function clipRealDur(c: Clip, s: Sample): number {
+    const length = c.length ?? s.buffer.duration - (c.offset ?? 0)
+    return length / rateOf(fx[c.sampleId])
+  }
+
+  function lengthSec(): number {
+    let end = 8
+    for (const c of clips) {
+      const s = samples.find((x) => x.id === c.sampleId)
+      if (s) end = Math.max(end, c.startSec + clipRealDur(c, s))
+    }
+    return Math.ceil(end + 0.5)
+  }
+
+  function play() {
+    if (playing) return
+    const buffers = clips
+      .map((c) => {
+        const s = samples.find((x) => x.id === c.sampleId)
+        return s ? { buffer: s.buffer, startSec: c.startSec, offset: c.offset, length: c.length, fx: fx[c.sampleId] } : null
+      })
+      .filter((x): x is NonNullable<typeof x> => !!x)
+    if (buffers.length === 0) return
+
+    const len = lengthSec()
+    const loop = loopTl
+    startTimeline(buffers)
+    setPlaying(true)
+
+    const t0 = performance.now()
+    let boundary = len
+    const tick = () => {
+      const elapsed = (performance.now() - t0) / 1000
+      if (loop) {
+        if (elapsed >= boundary) { startTimeline(buffers); boundary += len }
+        setPlayhead(elapsed % len)
+      } else if (elapsed >= len) {
+        stopTimeline(); setPlaying(false); setPlayhead(0); rafRef.current = null
+        return
+      } else {
+        setPlayhead(elapsed)
+      }
+      rafRef.current = requestAnimationFrame(tick)
+    }
+    rafRef.current = requestAnimationFrame(tick)
+  }
+
+  function stopTl() {
+    stopTimeline()
+    if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null }
+    setPlaying(false)
+    setPlayhead(0)
+  }
+
+  function addClip(sampleId: string, track: number, startSec: number) {
+    setClips((prev) => [...prev, { id: uid(), sampleId, track, startSec }])
+  }
+  function removeClip(id: string) {
+    setClips((prev) => prev.filter((c) => c.id !== id))
+  }
+  function moveClip(id: string, track: number, startSec: number) {
+    setClips((prev) => prev.map((c) => (c.id === id ? { ...c, track, startSec } : c)))
+  }
+  function trimClip(id: string, startSec: number, offset: number, length: number) {
+    setClips((prev) => prev.map((c) => (c.id === id ? { ...c, startSec, offset, length } : c)))
+  }
+
+  function stopEverything() {
+    stopAll()
+    layersRef.current.clear()
+    setLooping(new Set())
+    if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null }
+    setPlaying(false)
+    setPlayhead(0)
+  }
+
+  // --- save / load ---
+  function saveProject() {
+    if (samples.length === 0) {
+      alert('Nothing to save yet — chop a grain or two first.')
+      return
+    }
+    const savedSamples: SavedSample[] = samples.map((s) => ({
+      id: s.id,
+      name: s.name,
+      volume: volumes[s.id] ?? 0.8,
+      pitch: fx[s.id]?.pitch ?? DEFAULT_FX.pitch,
+      cutoff: fx[s.id]?.cutoff ?? DEFAULT_FX.cutoff,
+      wav: bufToBase64(encodeWav(s.buffer)),
+    }))
+    const session: Session = { version: 1, bpm, gridBeats, haze, loopTl, samples: savedSamples, clips }
+    downloadSession(session, 'black-sand-session')
+  }
+
+  async function loadProject(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    try {
+      stopEverything()
+      const { session, buffers } = await readSessionFile(file)
+      const restored: Sample[] = session.samples
+        .filter((s) => buffers.has(s.id))
+        .map((s) => ({ id: s.id, name: s.name, buffer: buffers.get(s.id)! }))
+      setSamples(restored)
+      setVolumes(Object.fromEntries(session.samples.map((s) => [s.id, s.volume] as [string, number])))
+      setFx(Object.fromEntries(session.samples.map((s) => [
+        s.id,
+        { pitch: s.pitch ?? DEFAULT_FX.pitch, cutoff: s.cutoff ?? DEFAULT_FX.cutoff },
+      ] as [string, GrainFX])))
+      setClips(session.clips)
+      setBpm(session.bpm)
+      setGridBeats(session.gridBeats)
+      setLoopTl(session.loopTl)
+      setHaze(session.haze)
+      applyHaze(session.haze)
+      setLooping(new Set())
+    } catch (err) {
+      alert('Could not open that file — is it a .blacksand session?')
+      console.error(err)
+    } finally {
+      e.target.value = ''
+    }
+  }
+
+  return (
+    <div className="app">
+      <header>
+        <h1>BLACK SAND</h1>
+        <div className="controls">
+          <label className="haze" title="Reverb haze over everything">
+            <span>Haze</span>
+            <input type="range" min={0} max={1} step={0.01} value={haze} onChange={(e) => onHaze(Number(e.target.value))} />
+          </label>
+          <label className="import">
+            {busy ? 'Loading…' : 'Import track'}
+            <input type="file" accept="audio/*" onChange={onFile} hidden disabled={busy} />
+          </label>
+          <label className="import" title="Open a .blacksand session">
+            Open
+            <input type="file" accept=".blacksand,application/json" onChange={loadProject} hidden />
+          </label>
+          <button onClick={saveProject} title="Save session to a .blacksand file">Save</button>
+          <button onClick={stopEverything}>Stop all</button>
+        </div>
+      </header>
+
+      <main>
+        <div className="top">
+          <section className="stage">
+            {source ? (
+              <>
+                <div className="track-name">{sourceName} · {source.duration.toFixed(1)}s</div>
+                <Waveform buffer={source} onSelect={(start, end) => setPending({ start, end })} />
+                <div className="chop-bar">
+                  {pending ? (
+                    <>
+                      <span className="sel">
+                        {pending.start.toFixed(2)}s → {pending.end.toFixed(2)}s
+                        <em> ({(pending.end - pending.start).toFixed(2)}s)</em>
+                      </span>
+                      <button className="extract" onClick={chop}>Chop → Grains</button>
+                    </>
+                  ) : (
+                    <span className="hint">Drag across the waveform to carve out a grain.</span>
+                  )}
+                </div>
+              </>
+            ) : (
+              <div className="empty">Import a track to start sifting.</div>
+            )}
+          </section>
+          <SampleLibrary
+            samples={samples}
+            looping={looping}
+            volumes={volumes}
+            fx={fx}
+            onToggleLoop={toggleLoop}
+            onVolume={onVolume}
+            onPitch={onPitch}
+            onCutoff={onCutoff}
+          />
+        </div>
+
+        <Timeline
+          samples={samples}
+          clips={clips}
+          fx={fx}
+          tracks={TRACKS}
+          pxPerSec={PX_PER_SEC}
+          lengthSec={lengthSec()}
+          playheadSec={playhead}
+          playing={playing}
+          loop={loopTl}
+          bpm={bpm}
+          gridBeats={gridBeats}
+          onBpm={setBpm}
+          onGrid={setGridBeats}
+          onAddClip={addClip}
+          onMoveClip={moveClip}
+          onTrimClip={trimClip}
+          onRemoveClip={removeClip}
+          onPlay={play}
+          onStop={stopTl}
+          onToggleLoop={() => setLoopTl((v) => !v)}
+        />
+      </main>
+    </div>
+  )
+}
