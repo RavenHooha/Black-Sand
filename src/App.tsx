@@ -10,6 +10,7 @@ import SampleLibrary, { Sample } from './components/SampleLibrary'
 import Timeline, { Clip } from './components/Timeline'
 import DrumMachine from './components/DrumMachine'
 import Keyboard, { KEY_OFFSETS } from './components/Keyboard'
+import PianoRoll from './components/PianoRoll'
 import { encodeWav, bufToBase64, downloadSession, downloadWav, readSessionText, Session, SavedSample } from './session'
 import { isDesktop, saveTextNative, saveBytesNative, openTextNative } from './desktop'
 
@@ -67,6 +68,7 @@ export default function App() {
   // keyboard recording
   const [recArmed, setRecArmed] = useState(false)
   const [recordedNotes, setRecordedNotes] = useState<RecordedNote[]>([])
+  const [showRoll, setShowRoll] = useState(false)
   const recHeldRef = useRef<Map<number, { startedAt: number; startSec: number; sampleId: string; semitones: number; gain: number }>>(new Map())
   const playOriginRef = useRef(0) // audio-clock time the current play pass started
   const playLenRef = useRef(0)
@@ -234,6 +236,30 @@ export default function App() {
   }
   function clearRecording() {
     setRecordedNotes([])
+  }
+
+  // --- piano-roll edits to the recorded part ---
+  function moveNote(id: string, startSec: number, semitones: number) {
+    setRecordedNotes((prev) => prev.map((n) => (n.id === id ? { ...n, startSec, semitones } : n)))
+  }
+  function trimNote(id: string, durSec: number) {
+    setRecordedNotes((prev) => prev.map((n) => (n.id === id ? { ...n, durSec } : n)))
+  }
+  function deleteNote(id: string) {
+    setRecordedNotes((prev) => prev.filter((n) => n.id !== id))
+  }
+  function addNote(startSec: number, semitones: number) {
+    const sampleId = keyInstrument || samples[0]?.id
+    if (!sampleId) return
+    const durSec = Math.max(0.2, Math.min(1, 60 / bpm))
+    setRecordedNotes((prev) => [...prev, { id: uid(), sampleId, semitones, startSec, durSec, gain: keyGain }])
+    previewNote(sampleId, semitones)
+  }
+  function previewNote(sampleId: string, semitones: number) {
+    const s = samples.find((x) => x.id === sampleId)
+    if (!s) return
+    const n = noteOn(s.buffer, semitones, keyGain, fx[sampleId])
+    window.setTimeout(() => n.stop(), 450)
   }
 
   // computer keys (A–K row) play the loaded grain, regardless of focus (unless typing)
@@ -623,10 +649,26 @@ export default function App() {
           onGain={setKeyGain}
           onArm={() => setRecArmed((v) => !v)}
           onClearRec={clearRecording}
+          onEdit={() => setShowRoll(true)}
           onNoteDown={triggerNote}
           onNoteUp={releaseNote}
         />
       </main>
+
+      {showRoll && (
+        <PianoRoll
+          notes={recordedNotes}
+          bpm={bpm}
+          gridBeats={gridBeats}
+          pxPerSec={PX_PER_SEC}
+          onMoveNote={moveNote}
+          onTrimNote={trimNote}
+          onAddNote={addNote}
+          onDeleteNote={deleteNote}
+          onPreview={previewNote}
+          onClose={() => setShowRoll(false)}
+        />
+      )}
     </div>
   )
 }

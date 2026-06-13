@@ -25,6 +25,7 @@ type Props = {
   onGain: (v: number) => void
   onArm: () => void
   onClearRec: () => void
+  onEdit: () => void
   onNoteDown: (offset: number) => void
   onNoteUp: (offset: number) => void
 }
@@ -32,7 +33,7 @@ type Props = {
 /** A playable keyboard: pick a grain, play it pitched with the mouse or the A–K row. */
 export default function Keyboard({
   samples, instrument, octave, gain, held, recArmed, recCount,
-  onInstrument, onOctave, onGain, onArm, onClearRec, onNoteDown, onNoteUp,
+  onInstrument, onOctave, onGain, onArm, onClearRec, onEdit, onNoteDown, onNoteUp,
 }: Props) {
   return (
     <div className="keyboard">
@@ -60,6 +61,7 @@ export default function Keyboard({
             <button className="clip-x" onClick={onClearRec} title="Clear the recorded part">×</button>
           </span>
         )}
+        {recCount > 0 && <button className="tbtn" onClick={onEdit} title="Edit the recorded part in the piano-roll">Edit ▸</button>}
         <label className="haze" title="Keyboard level">
           <span>Level</span>
           <input type="range" min={0} max={1.2} step={0.01} value={gain} onChange={(e) => onGain(Number(e.target.value))} />
