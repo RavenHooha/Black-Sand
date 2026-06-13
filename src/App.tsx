@@ -30,7 +30,8 @@ type RecordedNote = { id: string; sampleId: string; semitones: number; startSec:
 type Snap = {
   samples: Sample[]; volumes: Record<string, number>; fx: Record<string, GrainFX>; clips: Clip[]
   bpm: number; gridBeats: number; loopTl: boolean; haze: number; echo: number; echoBeats: number
-  drumPattern: boolean[][]; drumGain: number; drumSwing: number; recordedNotes: RecordedNote[]
+  drumPattern: boolean[][]; drumGain: number; drumSwing: number
+  drumVoiceGain: number[]; drumVoiceTune: number[]; recordedNotes: RecordedNote[]
   trackVol: number[]; trackMute: boolean[]; trackSolo: boolean[]; keyInstrument: string
 }
 
@@ -66,6 +67,8 @@ export default function App() {
   const [drumPattern, setDrumPattern] = useState<boolean[][]>(emptyDrums)
   const [drumGain, setDrumGain] = useState(0.9)
   const [drumSwing, setDrumSwing] = useState(0) // 0..0.6 — delay on the off-beat 16ths
+  const [drumVoiceGain, setDrumVoiceGain] = useState<number[]>(() => DRUM_VOICES.map(() => 1))
+  const [drumVoiceTune, setDrumVoiceTune] = useState<number[]>(() => DRUM_VOICES.map(() => 0))
   const [drumStep, setDrumStep] = useState(-1) // currently-sounding step for the highlight
 
   // keyboard
@@ -207,11 +210,17 @@ export default function App() {
   function clearDrums() {
     setDrumPattern(emptyDrums())
   }
+  function onVoiceGain(v: number, val: number) {
+    setDrumVoiceGain((prev) => prev.map((x, i) => (i === v ? val : x)))
+  }
+  function onVoiceTune(v: number, val: number) {
+    setDrumVoiceTune((prev) => prev.map((x, i) => (i === v ? val : x)))
+  }
 
-  // push live pattern / tempo / level / swing edits to the running drum scheduler
+  // push live pattern / tempo / level / swing / per-voice mix to the running drum scheduler
   useEffect(() => {
-    if (playing) updateDrums(drumPattern, bpm, drumGain, drumSwing)
-  }, [drumPattern, bpm, drumGain, drumSwing, playing])
+    if (playing) updateDrums(drumPattern, bpm, drumGain, drumSwing, drumVoiceGain, drumVoiceTune)
+  }, [drumPattern, bpm, drumGain, drumSwing, drumVoiceGain, drumVoiceTune, playing])
 
   // --- keyboard ---
   // stash live values so the global key listener can stay stable (no re-subscribe churn)
@@ -320,7 +329,8 @@ export default function App() {
   function docSnapshot(): Snap {
     return {
       samples, volumes, fx, clips, bpm, gridBeats, loopTl, haze, echo, echoBeats,
-      drumPattern, drumGain, drumSwing, recordedNotes, trackVol, trackMute, trackSolo, keyInstrument,
+      drumPattern, drumGain, drumSwing, drumVoiceGain, drumVoiceTune,
+      recordedNotes, trackVol, trackMute, trackSolo, keyInstrument,
     }
   }
   if (lastDocRef.current === null) lastDocRef.current = docSnapshot()
@@ -332,6 +342,7 @@ export default function App() {
     setHaze(s.haze); applyHaze(s.haze)
     setEchoAmt(s.echo); applyEcho(s.echo); setEchoBeats(s.echoBeats)
     setDrumPattern(s.drumPattern); setDrumGain(s.drumGain); setDrumSwing(s.drumSwing)
+    setDrumVoiceGain(s.drumVoiceGain); setDrumVoiceTune(s.drumVoiceTune)
     setRecordedNotes(s.recordedNotes)
     setTrackVol(s.trackVol); setTrackMute(s.trackMute); setTrackSolo(s.trackSolo)
     setKeyInstrument(s.keyInstrument)
@@ -367,7 +378,8 @@ export default function App() {
     return () => window.clearTimeout(id)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [samples, volumes, fx, clips, bpm, gridBeats, loopTl, haze, echo, echoBeats,
-      drumPattern, drumGain, drumSwing, recordedNotes, trackVol, trackMute, trackSolo, keyInstrument])
+      drumPattern, drumGain, drumSwing, drumVoiceGain, drumVoiceTune,
+      recordedNotes, trackVol, trackMute, trackSolo, keyInstrument])
 
   // Ctrl/Cmd+Z undo, Ctrl/Cmd+Shift+Z or Ctrl+Y redo
   useEffect(() => {
@@ -431,7 +443,7 @@ export default function App() {
     const loop = loopTl
     const at = audioCtx().currentTime + 0.1 // shared start so clips + drums + notes lock together
     if (buffers.length) startTimeline(buffers, at)
-    startDrums(drumPattern, bpm, drumGain, drumSwing, at)
+    startDrums(drumPattern, bpm, drumGain, drumSwing, drumVoiceGain, drumVoiceTune, at)
     startNotes(resolveNotes(), at)
     playOriginRef.current = at
     playLenRef.current = len
@@ -516,7 +528,7 @@ export default function App() {
     }))
     const session: Session = {
       version: 1, bpm, gridBeats, haze, echo, echoBeats, loopTl,
-      drumPattern, drumGain, drumSwing, notes: recordedNotes,
+      drumPattern, drumGain, drumSwing, drumVoiceGain, drumVoiceTune, notes: recordedNotes,
       trackVol, trackMute, trackSolo, samples: savedSamples, clips,
     }
     if (await saveTextNative(JSON.stringify(session), 'black-sand-session.blacksand', 'blacksand', 'Black Sand')) return
@@ -557,6 +569,8 @@ export default function App() {
       setDrumPattern(normalizeDrums(session.drumPattern))
       setDrumGain(session.drumGain ?? 0.9)
       setDrumSwing(session.drumSwing ?? 0)
+      setDrumVoiceGain(DRUM_VOICES.map((_, i) => session.drumVoiceGain?.[i] ?? 1))
+      setDrumVoiceTune(DRUM_VOICES.map((_, i) => session.drumVoiceTune?.[i] ?? 0))
       setRecordedNotes(session.notes ?? [])
       setTrackVol(Array.from({ length: TRACKS }, (_, i) => session.trackVol?.[i] ?? 1))
       setTrackMute(Array.from({ length: TRACKS }, (_, i) => session.trackMute?.[i] ?? false))
@@ -608,7 +622,8 @@ export default function App() {
       const mix = await renderMixdown({
         clips: tlClips, layers: activeLayers, haze,
         echo, echoTimeSec, echoFeedback: 0.35,
-        bpm, drums: drumPattern, drumGain, drumSwing, notes: resolveNotes(),
+        bpm, drums: drumPattern, drumGain, drumSwing,
+        drumVoiceGain, drumVoiceTune, notes: resolveNotes(),
         durationSec: lengthSec(),
       })
       const wav = new Uint8Array(encodeWav(mix))
@@ -732,10 +747,14 @@ export default function App() {
           step={drumStep}
           gain={drumGain}
           swing={drumSwing}
+          voiceGain={drumVoiceGain}
+          voiceTune={drumVoiceTune}
           onToggle={toggleDrum}
           onClear={clearDrums}
           onGain={setDrumGain}
           onSwing={setDrumSwing}
+          onVoiceGain={onVoiceGain}
+          onVoiceTune={onVoiceTune}
         />
 
         <Keyboard

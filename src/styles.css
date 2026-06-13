@@ -179,7 +179,10 @@ main { flex-direction: column; }
 
 .drum-grid { display: flex; flex-direction: column; gap: 5px; }
 .drum-row { display: flex; align-items: center; gap: 10px; }
-.drum-label { width: 46px; flex-shrink: 0; font-size: 11px; letter-spacing: 1px; color: #b3925f; text-align: right; }
+.drum-ctl { width: 150px; flex-shrink: 0; display: flex; align-items: center; gap: 6px; }
+.drum-label { width: 40px; flex-shrink: 0; font-size: 11px; letter-spacing: 0.5px; color: #b3925f; }
+.dv-gain { width: 46px; flex-shrink: 0; }
+.dv-tune { width: 46px; flex-shrink: 0; }
 .drum-cells { display: grid; grid-template-columns: repeat(16, 1fr); gap: 4px; flex: 1; }
 
 .cell {
@@ -192,7 +195,7 @@ main { flex-direction: column; }
 .cell.playing { box-shadow: inset 0 0 0 2px #d9534f; }
 .cell.on.playing { box-shadow: inset 0 0 0 2px #f0c9c9, 0 0 8px rgba(217, 83, 79, 0.5); }
 
-.beat-marks { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; margin-left: 56px; margin-top: 4px; }
+.beat-marks { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; margin-left: 160px; margin-top: 4px; }
 .beat-marks span { font-size: 10px; color: #45443f; letter-spacing: 1px; }
 
 /* --- keyboard --- */

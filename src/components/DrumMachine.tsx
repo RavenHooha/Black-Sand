@@ -4,10 +4,14 @@ type Props = {
   step: number // currently-sounding step, or -1
   gain: number
   swing: number
+  voiceGain: number[]
+  voiceTune: number[]
   onToggle: (voice: number, step: number) => void
   onClear: () => void
   onGain: (v: number) => void
   onSwing: (v: number) => void
+  onVoiceGain: (voice: number, v: number) => void
+  onVoiceTune: (voice: number, v: number) => void
 }
 
 /**
@@ -15,7 +19,10 @@ type Props = {
  * tempo-locked to the timeline BPM and run through the master bus — so the
  * Haze and Echo land on the drums too.
  */
-export default function DrumMachine({ labels, pattern, step, gain, swing, onToggle, onClear, onGain, onSwing }: Props) {
+export default function DrumMachine({
+  labels, pattern, step, gain, swing, voiceGain, voiceTune,
+  onToggle, onClear, onGain, onSwing, onVoiceGain, onVoiceTune,
+}: Props) {
   const steps = pattern[0]?.length ?? 16
   return (
     <div className="drums">
@@ -35,7 +42,19 @@ export default function DrumMachine({ labels, pattern, step, gain, swing, onTogg
       <div className="drum-grid">
         {pattern.map((row, v) => (
           <div className="drum-row" key={v}>
-            <span className="drum-label">{labels[v]}</span>
+            <div className="drum-ctl">
+              <span className="drum-label">{labels[v]}</span>
+              <input
+                className="dv-gain" type="range" min={0} max={1.5} step={0.01}
+                value={voiceGain[v] ?? 1} onChange={(e) => onVoiceGain(v, Number(e.target.value))}
+                title={`${labels[v]} level`}
+              />
+              <input
+                className="dv-tune" type="range" min={-12} max={12} step={1}
+                value={voiceTune[v] ?? 0} onChange={(e) => onVoiceTune(v, Number(e.target.value))}
+                title={`${labels[v]} tune (${(voiceTune[v] ?? 0) > 0 ? '+' : ''}${voiceTune[v] ?? 0} st)`}
+              />
+            </div>
             <div className="drum-cells">
               {row.map((on, i) => (
                 <button
