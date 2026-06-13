@@ -24,6 +24,7 @@ Then open the URL it prints (usually http://localhost:5173).
 - **Haze** — a master reverb send over everything (the Phaeleh air)
 - **Echo** — a tempo-synced dub delay send with feedback, locked to a note division (1/8 · 1/8· · 1/4 · 1/4· · 1/2)
 - **Drum machine:** a 4-voice (kick / snare / hat / open-hat), 16-step sequencer with **synthesized** drums, tempo-locked to the timeline BPM and run through the **same Haze + Echo** as everything else. Plays in sync with the transport; included in the bounce.
+- **Keyboard:** load any grain onto the keys and **play it pitched** — sustained while held, click-free, through the Haze + Echo. Play it with the on-screen piano or the **A–K computer-key row**, with octave shift + level.
 - **Timeline arranger:** drag grains onto **5 tracks**, scheduled in time
   - **Tempo (BPM)** + a **snap grid** (off / ¼ / ½ / 1 beat / 1 bar) so clips lock to the beat
   - **Drag clips** to move them across time/tracks; **drag a clip's edges** to trim its in/out points

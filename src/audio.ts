@@ -460,3 +460,43 @@ export function currentDrumStep(): number {
   const s = Math.floor((c.currentTime - drumOrigin) / stepDur)
   return s < 0 ? -1 : s % DRUM_STEPS
 }
+
+// --- playable keyboard: pitch a grain across the keys, sustain it while held ---
+export type Note = { stop: () => void }
+
+/**
+ * Strike a grain at a semitone offset and hold it (looped) until stopped, through
+ * the grain's tone + the master bus. Attack/release ramps keep it click-free.
+ */
+export function noteOn(buffer: AudioBuffer, semitones: number, gain = 0.9, fx?: GrainFX): Note {
+  const c = audioCtx()
+  const src = c.createBufferSource()
+  src.buffer = buffer
+  src.loop = true
+  src.playbackRate.value = Math.pow(2, semitones / 12)
+  const filter = c.createBiquadFilter()
+  filter.type = 'lowpass'
+  filter.frequency.value = fx?.cutoff ?? CUTOFF_MAX
+  const g = c.createGain()
+  const t = c.currentTime
+  const attack = Math.max(0.005, fx?.fadeIn ?? 0.01)
+  g.gain.setValueAtTime(0.0001, t)
+  g.gain.linearRampToValueAtTime(Math.max(0.0001, gain), t + attack)
+  src.connect(filter).connect(g).connect(ensureMaster())
+  src.start(t)
+  let stopped = false
+  return {
+    stop() {
+      if (stopped) return
+      stopped = true
+      const now = audioCtx().currentTime
+      const rel = 0.14
+      try {
+        g.gain.cancelScheduledValues(now)
+        g.gain.setValueAtTime(g.gain.value, now)
+        g.gain.linearRampToValueAtTime(0.0001, now + rel)
+        src.stop(now + rel + 0.03)
+      } catch { /* noop */ }
+    },
+  }
+}

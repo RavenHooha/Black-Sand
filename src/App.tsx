@@ -3,12 +3,13 @@ import {
   audioCtx, decodeFile, sliceBuffer, stopAll, startLayer, setHaze as applyHaze,
   setEcho as applyEcho, setEchoTime, startTimeline, stopTimeline, renderMixdown,
   startDrums, stopDrums, updateDrums, currentDrumStep, DRUM_VOICES, DRUM_STEPS,
-  Layer, GrainFX, DEFAULT_FX, rateOf,
+  noteOn, Note, Layer, GrainFX, DEFAULT_FX, rateOf,
 } from './audio'
 import Waveform from './components/Waveform'
 import SampleLibrary, { Sample } from './components/SampleLibrary'
 import Timeline, { Clip } from './components/Timeline'
 import DrumMachine from './components/DrumMachine'
+import Keyboard, { KEY_OFFSETS } from './components/Keyboard'
 import { encodeWav, bufToBase64, downloadSession, downloadWav, readSessionFile, Session, SavedSample } from './session'
 
 const TRACKS = 5
@@ -52,6 +53,13 @@ export default function App() {
   const [drumGain, setDrumGain] = useState(0.9)
   const [drumStep, setDrumStep] = useState(-1) // currently-sounding step for the highlight
 
+  // keyboard
+  const [keyInstrument, setKeyInstrument] = useState('')
+  const [keyOctave, setKeyOctave] = useState(4)
+  const [keyGain, setKeyGain] = useState(0.9)
+  const [held, setHeld] = useState<Set<number>>(new Set()) // offsets currently sounding
+  const notesRef = useRef<Map<number, Note>>(new Map())
+
   // timeline
   const [clips, setClips] = useState<Clip[]>([])
   const [playing, setPlaying] = useState(false)
@@ -84,7 +92,9 @@ export default function App() {
     if (!source || !pending) return
     const grain = sliceBuffer(source, pending.start, pending.end)
     const n = samples.filter((s) => s.name.startsWith(sourceName)).length + 1
-    setSamples([{ id: uid(), name: `${sourceName} ·${n}`, buffer: grain }, ...samples])
+    const id = uid()
+    setSamples([{ id, name: `${sourceName} ·${n}`, buffer: grain }, ...samples])
+    setKeyInstrument((cur) => cur || id) // first grain becomes the keyboard's voice
     setPending(null)
   }
 
@@ -156,6 +166,51 @@ export default function App() {
   useEffect(() => {
     if (playing) updateDrums(drumPattern, bpm, drumGain)
   }, [drumPattern, bpm, drumGain, playing])
+
+  // --- keyboard ---
+  // stash live values so the global key listener can stay stable (no re-subscribe churn)
+  const kbRef = useRef({ samples, fx, keyInstrument, keyOctave, keyGain })
+  kbRef.current = { samples, fx, keyInstrument, keyOctave, keyGain }
+
+  function triggerNote(offset: number) {
+    if (notesRef.current.has(offset)) return // already held
+    const { samples: ss, fx: ff, keyInstrument: ki, keyOctave: ko, keyGain: kg } = kbRef.current
+    const inst = ss.find((s) => s.id === ki) ?? ss[0]
+    if (!inst) return
+    const note = noteOn(inst.buffer, offset + (ko - 4) * 12, kg, ff[inst.id])
+    notesRef.current.set(offset, note)
+    setHeld((prev) => new Set(prev).add(offset))
+  }
+  function releaseNote(offset: number) {
+    const note = notesRef.current.get(offset)
+    if (note) { note.stop(); notesRef.current.delete(offset) }
+    setHeld((prev) => { const next = new Set(prev); next.delete(offset); return next })
+  }
+
+  // computer keys (A–K row) play the loaded grain, regardless of focus (unless typing)
+  useEffect(() => {
+    const isTyping = () => {
+      const el = document.activeElement
+      return !!el && /^(input|select|textarea)$/i.test(el.tagName)
+    }
+    const down = (e: KeyboardEvent) => {
+      if (e.repeat || e.ctrlKey || e.metaKey || e.altKey || isTyping()) return
+      const off = KEY_OFFSETS[e.key.toLowerCase()]
+      if (off === undefined) return
+      e.preventDefault()
+      triggerNote(off)
+    }
+    const up = (e: KeyboardEvent) => {
+      const off = KEY_OFFSETS[e.key.toLowerCase()]
+      if (off !== undefined) releaseNote(off)
+    }
+    window.addEventListener('keydown', down)
+    window.addEventListener('keyup', up)
+    return () => {
+      window.removeEventListener('keydown', down)
+      window.removeEventListener('keyup', up)
+    }
+  }, [])
 
   // --- timeline ---
   // wall-clock length of a placed clip: trimmed length / pitch rate
@@ -237,6 +292,9 @@ export default function App() {
     stopAll()
     layersRef.current.clear()
     setLooping(new Set())
+    notesRef.current.forEach((n) => n.stop())
+    notesRef.current.clear()
+    setHeld(new Set())
     if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null }
     setPlaying(false)
     setPlayhead(0)
@@ -449,6 +507,19 @@ export default function App() {
           onToggle={toggleDrum}
           onClear={clearDrums}
           onGain={setDrumGain}
+        />
+
+        <Keyboard
+          samples={samples}
+          instrument={keyInstrument || samples[0]?.id || ''}
+          octave={keyOctave}
+          gain={keyGain}
+          held={held}
+          onInstrument={setKeyInstrument}
+          onOctave={(d) => setKeyOctave((o) => Math.max(1, Math.min(7, o + d)))}
+          onGain={setKeyGain}
+          onNoteDown={triggerNote}
+          onNoteUp={releaseNote}
         />
       </main>
     </div>
