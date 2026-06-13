@@ -76,6 +76,7 @@ main { flex: 1; display: flex; min-height: 0; overflow-y: auto; }
 .library li.grain { display: flex; flex-direction: column; align-items: stretch; gap: 8px; }
 .grain-row { display: flex; align-items: center; gap: 8px; }
 .grain.looping { border-color: #5b4a27; background: #141009; box-shadow: inset 0 0 0 1px #3a2f18; }
+.grain-wave { width: 100%; border-radius: 5px; background: #0a0a0c; border: 1px solid #1b1b22; }
 .icon.loop.on { background: #2a2417; border-color: #715c30; color: #efe2c2; }
 
 input[type="range"] {
@@ -147,8 +148,9 @@ main { flex-direction: column; }
   display: flex; align-items: center; gap: 6px; padding: 0 6px; overflow: hidden;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
 }
-.clip-name { font-size: 11px; color: #e9d9b3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.clip-x { background: transparent; border: none; color: #8a7a55; padding: 0 2px; font-size: 14px; line-height: 1; cursor: pointer; }
+.clip-wave { position: absolute; left: 0; top: 1px; z-index: 0; pointer-events: none; opacity: 0.7; }
+.clip-name { position: relative; z-index: 1; font-size: 11px; color: #f4ead0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-shadow: 0 1px 2px rgba(0,0,0,0.6); }
+.clip-x { position: relative; z-index: 1; background: transparent; border: none; color: #d8c79a; padding: 0 2px; font-size: 14px; line-height: 1; cursor: pointer; text-shadow: 0 1px 2px rgba(0,0,0,0.7); }
 .clip-x:hover { color: #efe2c2; }
 
 .playhead { position: absolute; top: 0; bottom: 0; width: 2px; background: #d9534f; box-shadow: 0 0 8px #d9534f; pointer-events: none; z-index: 3; }

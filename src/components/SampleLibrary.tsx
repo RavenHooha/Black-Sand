@@ -1,4 +1,5 @@
 import { playBuffer, GrainFX, DEFAULT_FX, CUTOFF_MAX } from '../audio'
+import MiniWave from './MiniWave'
 
 export type Sample = { id: string; name: string; buffer: AudioBuffer }
 
@@ -66,6 +67,7 @@ export default function SampleLibrary({
                 <span className="name" title={s.name}>{s.name}</span>
                 <span className="dur">{s.buffer.duration.toFixed(2)}s</span>
               </div>
+              <MiniWave className="grain-wave" buffer={s.buffer} width={248} height={26} color="#8a7440" />
               <input
                 className="vol"
                 type="range"

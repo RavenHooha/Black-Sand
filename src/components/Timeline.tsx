@@ -1,6 +1,7 @@
 import React, { useRef, useState } from 'react'
 import { Sample } from './SampleLibrary'
 import { GrainFX, rateOf } from '../audio'
+import MiniWave from './MiniWave'
 
 export type Clip = {
   id: string
@@ -274,16 +275,18 @@ export default function Timeline(props: Props) {
                 {view.filter((c) => c.track === tr).map((c) => {
                   const s = sampleById(c.sampleId)
                   if (!s) return null
-                  const { realDur } = dims(c, s)
+                  const { offset, length, realDur } = dims(c, s)
+                  const w = Math.max(10, realDur * pxPerSec)
                   const dragging = dragPos?.clipId === c.id || trimPos?.clipId === c.id
                   return (
                     <div
                       key={c.id}
                       className={dragging ? 'clip dragging' : 'clip'}
-                      style={{ left: c.startSec * pxPerSec, width: Math.max(10, realDur * pxPerSec) }}
+                      style={{ left: c.startSec * pxPerSec, width: w }}
                       title={`${s.name} @ ${c.startSec.toFixed(2)}s · ${realDur.toFixed(2)}s`}
                       onMouseDown={(e) => onClipDown(e, c)}
                     >
+                      <MiniWave className="clip-wave" buffer={s.buffer} width={w} height={24} offset={offset} length={length} color="rgba(233,217,179,0.4)" />
                       <span className="trim l" title="Trim start" onMouseDown={(e) => onTrimDown(e, c, s, 'l')} />
                       <span className="clip-name">{s.name}</span>
                       <button className="clip-x" onClick={() => props.onRemoveClip(c.id)} title="Remove">×</button>

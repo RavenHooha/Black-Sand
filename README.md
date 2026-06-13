@@ -17,7 +17,7 @@ Then open the URL it prints (usually http://localhost:5173).
 
 - **Import** a track (wav / mp3 / flac / etc.)
 - **Waveform** view; **drag** across it to select a region
-- **Chop → Grains** carves that region into a new sample
+- **Chop → Grains** carves that region into a new sample (each grain + timeline clip shows a **waveform thumbnail**)
 - **Layer mixer:** each grain can **▶ preview**, **↻ loop as a layer**, with its own **volume fader** — stack a few and they build an atmosphere
   - **Pitch** (±12 semitones) and **Tone** (a lowpass) per grain — drop them for the murky low end. Live while a layer loops.
   - **In / Out fades** per grain — soften the attack and tail so hard chops don't click
@@ -25,7 +25,7 @@ Then open the URL it prints (usually http://localhost:5173).
 - **Haze** — a master reverb send over everything (the Phaeleh air)
 - **Master limiter** — everything sums through a limiter, so a busy mix (clips + drums + notes + reverb + echo) won't clip, live or in the bounce
 - **Echo** — a tempo-synced dub delay send with feedback, locked to a note division (1/8 · 1/8· · 1/4 · 1/4· · 1/2)
-- **Drum machine:** an 8-voice (kick / snare / hat / open-hat / clap / rim / tom / shaker), 16-step sequencer with **synthesized** drums, each voice with its own **level + tune**, a selectable **pattern length** (8 / 16 / 24 / 32 steps), tempo-locked to the timeline BPM and run through the **same Haze + Echo** as everything else. Plays in sync with the transport; included in the bounce.
+- **Drum machine:** an 8-voice (kick / snare / hat / open-hat / clap / rim / tom / shaker), 16-step sequencer with **synthesized** drums, each voice with its own **level + tune + decay**, a selectable **pattern length** (8 / 16 / 24 / 32 steps), tempo-locked to the timeline BPM and run through the **same Haze + Echo** as everything else. Plays in sync with the transport; included in the bounce.
 - **Keyboard:** load any grain onto the keys and **play it pitched** — sustained while held, click-free, through the Haze + Echo. Play it with the on-screen piano or the **A–K computer-key row**, with octave shift + level. **Arm Rec** and play while the transport rolls to **record a part** into the piece, then **Edit ▸** it in a **piano-roll** (drag to move, drag the edge to trim, double-click to add, × to delete).
 - **Drum swing** pushes the off-beats late for a shuffle.
 - **Per-track mixer:** each timeline track has a volume fader + mute/solo in the gutter on the left.
@@ -56,7 +56,7 @@ WebView2 — same as the other RavenHooha desktop apps.
 ## Next (the roadmap)
 
 - Multiple recorded parts / a clip-based arranger for keyboard takes
-- Waveform thumbnails on grains + clips
+- Pattern chaining (A/B drum patterns into a song)
 
 ## Stack
 
