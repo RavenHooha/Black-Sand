@@ -1,7 +1,8 @@
-import React, { useRef, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import {
   decodeFile, sliceBuffer, stopAll, startLayer, setHaze as applyHaze,
-  startTimeline, stopTimeline, renderMixdown, Layer, GrainFX, DEFAULT_FX, rateOf,
+  setEcho as applyEcho, setEchoTime, startTimeline, stopTimeline, renderMixdown,
+  Layer, GrainFX, DEFAULT_FX, rateOf,
 } from './audio'
 import Waveform from './components/Waveform'
 import SampleLibrary, { Sample } from './components/SampleLibrary'
@@ -29,6 +30,8 @@ export default function App() {
   const [volumes, setVolumes] = useState<Record<string, number>>({})
   const [fx, setFx] = useState<Record<string, GrainFX>>({})
   const [haze, setHaze] = useState(0.25)
+  const [echo, setEchoAmt] = useState(0)
+  const [echoBeats, setEchoBeats] = useState(0.75) // dotted 1/8 — the classic dub division
 
   // timeline
   const [clips, setClips] = useState<Clip[]>([])
@@ -107,6 +110,15 @@ export default function App() {
     setHaze(v)
     applyHaze(v)
   }
+
+  function onEcho(v: number) {
+    setEchoAmt(v)
+    applyEcho(v)
+  }
+
+  // keep the dub-echo delay time locked to tempo + note division
+  const echoTimeSec = echoBeats * (60 / bpm)
+  useEffect(() => { setEchoTime(echoTimeSec) }, [echoTimeSec])
 
   // --- timeline ---
   // wall-clock length of a placed clip: trimmed length / pitch rate
@@ -202,7 +214,7 @@ export default function App() {
       fadeOut: fx[s.id]?.fadeOut ?? DEFAULT_FX.fadeOut,
       wav: bufToBase64(encodeWav(s.buffer)),
     }))
-    const session: Session = { version: 1, bpm, gridBeats, haze, loopTl, samples: savedSamples, clips }
+    const session: Session = { version: 1, bpm, gridBeats, haze, echo, echoBeats, loopTl, samples: savedSamples, clips }
     downloadSession(session, 'black-sand-session')
   }
 
@@ -232,6 +244,9 @@ export default function App() {
       setLoopTl(session.loopTl)
       setHaze(session.haze)
       applyHaze(session.haze)
+      setEchoAmt(session.echo ?? 0)
+      applyEcho(session.echo ?? 0)
+      setEchoBeats(session.echoBeats ?? 0.75)
       setLooping(new Set())
     } catch (err) {
       alert('Could not open that file — is it a .blacksand session?')
@@ -263,7 +278,11 @@ export default function App() {
     }
     setRendering(true)
     try {
-      const mix = await renderMixdown({ clips: tlClips, layers: activeLayers, haze, durationSec: lengthSec() })
+      const mix = await renderMixdown({
+        clips: tlClips, layers: activeLayers, haze,
+        echo, echoTimeSec, echoFeedback: 0.35,
+        durationSec: lengthSec(),
+      })
       downloadWav(mix, 'black-sand-mix')
     } catch (err) {
       alert('Render failed — see console.')
@@ -281,6 +300,17 @@ export default function App() {
           <label className="haze" title="Reverb haze over everything">
             <span>Haze</span>
             <input type="range" min={0} max={1} step={0.01} value={haze} onChange={(e) => onHaze(Number(e.target.value))} />
+          </label>
+          <label className="haze" title="Tempo-synced dub echo over everything">
+            <span>Echo</span>
+            <input type="range" min={0} max={1} step={0.01} value={echo} onChange={(e) => onEcho(Number(e.target.value))} />
+            <select className="echo-sync" value={echoBeats} onChange={(e) => setEchoBeats(Number(e.target.value))} title="Echo timing">
+              <option value={0.5}>1/8</option>
+              <option value={0.75}>1/8·</option>
+              <option value={1}>1/4</option>
+              <option value={1.5}>1/4·</option>
+              <option value={2}>1/2</option>
+            </select>
           </label>
           <label className="import">
             {busy ? 'Loading…' : 'Import track'}

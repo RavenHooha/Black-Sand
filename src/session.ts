@@ -23,6 +23,8 @@ export type Session = {
   bpm: number
   gridBeats: number
   haze: number
+  echo?: number // dub-echo send (older sessions omit it)
+  echoBeats?: number // echo note division in beats
   loopTl: boolean
   samples: SavedSample[]
   clips: SavedClip[]

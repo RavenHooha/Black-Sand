@@ -22,6 +22,7 @@ Then open the URL it prints (usually http://localhost:5173).
   - **Pitch** (±12 semitones) and **Tone** (a lowpass) per grain — drop them for the murky low end. Live while a layer loops.
   - **In / Out fades** per grain — soften the attack and tail so hard chops don't click
 - **Haze** — a master reverb send over everything (the Phaeleh air)
+- **Echo** — a tempo-synced dub delay send with feedback, locked to a note division (1/8 · 1/8· · 1/4 · 1/4· · 1/2)
 - **Timeline arranger:** drag grains onto **5 tracks**, scheduled in time
   - **Tempo (BPM)** + a **snap grid** (off / ¼ / ½ / 1 beat / 1 bar) so clips lock to the beat
   - **Drag clips** to move them across time/tracks; **drag a clip's edges** to trim its in/out points

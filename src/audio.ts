@@ -11,6 +11,9 @@ let master: GainNode | null = null
 let dry: GainNode | null = null
 let wet: GainNode | null = null
 let convolver: ConvolverNode | null = null
+let delay: DelayNode | null = null
+let echoFb: GainNode | null = null
+let echoWet: GainNode | null = null
 
 // Per-grain colour: pitch in semitones (down = murk), lowpass cutoff in Hz (down
 // = dark), and fade-in/out in real seconds (so chops don't click at the edges).
@@ -77,6 +80,17 @@ function ensureMaster(): GainNode {
   convolver.buffer = makeImpulse(c, 3.4, 2.6) // long, soft tail
   master.connect(dry).connect(c.destination)
   master.connect(convolver).connect(wet).connect(c.destination)
+
+  // dub echo send: master -> delay -> (feedback) -> echoWet -> out
+  delay = c.createDelay(2.0)
+  delay.delayTime.value = 0.375
+  echoFb = c.createGain()
+  echoFb.gain.value = 0.35
+  echoWet = c.createGain()
+  echoWet.gain.value = 0 // off until dialed up
+  master.connect(delay)
+  delay.connect(echoFb).connect(delay) // feedback loop (legal — a DelayNode sits in it)
+  delay.connect(echoWet).connect(c.destination)
   return master
 }
 
@@ -84,6 +98,24 @@ function ensureMaster(): GainNode {
 export function setHaze(amount: number): void {
   ensureMaster()
   wet!.gain.value = Math.max(0, Math.min(1, amount))
+}
+
+/** 0..1 — how much tempo-synced dub echo sits over everything. */
+export function setEcho(amount: number): void {
+  ensureMaster()
+  echoWet!.gain.value = Math.max(0, Math.min(1, amount))
+}
+
+/** Delay time in seconds (driven by tempo + note division). */
+export function setEchoTime(seconds: number): void {
+  ensureMaster()
+  delay!.delayTime.value = Math.max(0.01, Math.min(2.0, seconds))
+}
+
+/** 0..0.9 — how much each echo feeds back into the next. */
+export function setEchoFeedback(amount: number): void {
+  ensureMaster()
+  echoFb!.gain.value = Math.max(0, Math.min(0.9, amount))
 }
 
 export async function decodeFile(file: File): Promise<AudioBuffer> {
@@ -241,21 +273,37 @@ export async function renderMixdown(opts: {
   clips: TlClip[]
   layers: LayerRender[]
   haze: number
+  echo?: number
+  echoTimeSec?: number
+  echoFeedback?: number
   durationSec: number
   tailSec?: number
 }): Promise<AudioBuffer> {
   const sr = audioCtx().sampleRate
-  const tail = opts.tailSec ?? 3.6
+  const echo = opts.echo ?? 0
+  const echoTime = opts.echoTimeSec ?? 0.375
+  const echoFeedback = opts.echoFeedback ?? 0.35
+  // let the reverb (and any echoes) ring out past the arrangement
+  let tail = opts.tailSec ?? 3.6
+  if (echo > 0 && echoFeedback > 0 && echoTime > 0) {
+    const repeats = Math.log(0.02) / Math.log(Math.min(0.95, echoFeedback)) // until ~2% level
+    tail = Math.max(tail, Math.min(12, repeats * echoTime + 1))
+  }
   const total = Math.max(0.1, opts.durationSec + tail)
   const oc = new OfflineAudioContext(2, Math.ceil(total * sr), sr)
 
-  // mirror the live master bus: master -> dry -> out, master -> convolver -> wet -> out
+  // mirror the live master bus: dry + reverb (haze) + dub echo sends
   const m = oc.createGain()
   const d = oc.createGain(); d.gain.value = 1
   const w = oc.createGain(); w.gain.value = Math.max(0, Math.min(1, opts.haze))
   const conv = oc.createConvolver(); conv.buffer = makeImpulse(oc, 3.4, 2.6)
   m.connect(d).connect(oc.destination)
   m.connect(conv).connect(w).connect(oc.destination)
+
+  const dl = oc.createDelay(2.0); dl.delayTime.value = Math.max(0.01, Math.min(2.0, echoTime))
+  const fb = oc.createGain(); fb.gain.value = Math.max(0, Math.min(0.9, echoFeedback))
+  const ew = oc.createGain(); ew.gain.value = Math.max(0, Math.min(1, echo))
+  m.connect(dl); dl.connect(fb).connect(dl); dl.connect(ew).connect(oc.destination)
 
   for (const clip of opts.clips) {
     const src = oc.createBufferSource()

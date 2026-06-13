@@ -66,6 +66,10 @@ main { flex: 1; display: flex; min-height: 0; }
 /* --- layer mixer --- */
 .haze { display: flex; align-items: center; gap: 8px; padding: 0 4px; color: #8a8578; font-size: 11px; letter-spacing: 2px; text-transform: uppercase; }
 .haze input[type="range"] { width: 92px; }
+.echo-sync {
+  background: #15151b; color: #d8d2c4; border: 1px solid #28282f; border-radius: 6px;
+  padding: 3px 4px; font: inherit; font-size: 11px; letter-spacing: 0; cursor: pointer;
+}
 
 .library li.grain { display: flex; flex-direction: column; align-items: stretch; gap: 8px; }
 .grain-row { display: flex; align-items: center; gap: 8px; }
