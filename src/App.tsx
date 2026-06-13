@@ -94,6 +94,15 @@ export default function App() {
     layersRef.current.get(s.id)?.setCutoff(hz)
   }
 
+  // fades take effect on the next preview / timeline pass / bounce (not on a live loop)
+  function onFadeIn(s: Sample, sec: number) {
+    setFx((prev) => ({ ...prev, [s.id]: { ...(prev[s.id] ?? DEFAULT_FX), fadeIn: sec } }))
+  }
+
+  function onFadeOut(s: Sample, sec: number) {
+    setFx((prev) => ({ ...prev, [s.id]: { ...(prev[s.id] ?? DEFAULT_FX), fadeOut: sec } }))
+  }
+
   function onHaze(v: number) {
     setHaze(v)
     applyHaze(v)
@@ -189,6 +198,8 @@ export default function App() {
       volume: volumes[s.id] ?? 0.8,
       pitch: fx[s.id]?.pitch ?? DEFAULT_FX.pitch,
       cutoff: fx[s.id]?.cutoff ?? DEFAULT_FX.cutoff,
+      fadeIn: fx[s.id]?.fadeIn ?? DEFAULT_FX.fadeIn,
+      fadeOut: fx[s.id]?.fadeOut ?? DEFAULT_FX.fadeOut,
       wav: bufToBase64(encodeWav(s.buffer)),
     }))
     const session: Session = { version: 1, bpm, gridBeats, haze, loopTl, samples: savedSamples, clips }
@@ -208,7 +219,12 @@ export default function App() {
       setVolumes(Object.fromEntries(session.samples.map((s) => [s.id, s.volume] as [string, number])))
       setFx(Object.fromEntries(session.samples.map((s) => [
         s.id,
-        { pitch: s.pitch ?? DEFAULT_FX.pitch, cutoff: s.cutoff ?? DEFAULT_FX.cutoff },
+        {
+          pitch: s.pitch ?? DEFAULT_FX.pitch,
+          cutoff: s.cutoff ?? DEFAULT_FX.cutoff,
+          fadeIn: s.fadeIn ?? DEFAULT_FX.fadeIn,
+          fadeOut: s.fadeOut ?? DEFAULT_FX.fadeOut,
+        },
       ] as [string, GrainFX])))
       setClips(session.clips)
       setBpm(session.bpm)
@@ -316,6 +332,8 @@ export default function App() {
             onVolume={onVolume}
             onPitch={onPitch}
             onCutoff={onCutoff}
+            onFadeIn={onFadeIn}
+            onFadeOut={onFadeOut}
           />
         </div>
 

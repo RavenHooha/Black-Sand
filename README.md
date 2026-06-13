@@ -20,6 +20,7 @@ Then open the URL it prints (usually http://localhost:5173).
 - **Chop → Grains** carves that region into a new sample
 - **Layer mixer:** each grain can **▶ preview**, **↻ loop as a layer**, with its own **volume fader** — stack a few and they build an atmosphere
   - **Pitch** (±12 semitones) and **Tone** (a lowpass) per grain — drop them for the murky low end. Live while a layer loops.
+  - **In / Out fades** per grain — soften the attack and tail so hard chops don't click
 - **Haze** — a master reverb send over everything (the Phaeleh air)
 - **Timeline arranger:** drag grains onto **5 tracks**, scheduled in time
   - **Tempo (BPM)** + a **snap grid** (off / ¼ / ½ / 1 beat / 1 bar) so clips lock to the beat
@@ -31,7 +32,6 @@ Then open the URL it prints (usually http://localhost:5173).
 
 ## Next (the roadmap)
 
-- Per-grain fades (so chops don't click at the edges)
 - Wrap in Tauri for a real desktop build
 
 ## Stack

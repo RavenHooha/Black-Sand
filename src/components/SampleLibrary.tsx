@@ -11,7 +11,11 @@ type Props = {
   onVolume: (s: Sample, v: number) => void
   onPitch: (s: Sample, semitones: number) => void
   onCutoff: (s: Sample, hz: number) => void
+  onFadeIn: (s: Sample, sec: number) => void
+  onFadeOut: (s: Sample, sec: number) => void
 }
+
+const fadeLabel = (sec: number) => (sec <= 0 ? '—' : sec < 1 ? `${Math.round(sec * 1000)}ms` : `${sec.toFixed(2)}s`)
 
 // Tone slider runs 0..1 on a log scale so the action sits where the ear is.
 const FMIN = 120
@@ -24,7 +28,7 @@ const toPos = (hz: number) => Math.log(hz / FMIN) / Math.log(CUTOFF_MAX / FMIN)
  * (drop the pitch and close the tone for that murky low end).
  */
 export default function SampleLibrary({
-  samples, looping, volumes, fx, onToggleLoop, onVolume, onPitch, onCutoff,
+  samples, looping, volumes, fx, onToggleLoop, onVolume, onPitch, onCutoff, onFadeIn, onFadeOut,
 }: Props) {
   return (
     <aside className="library">
@@ -86,6 +90,24 @@ export default function SampleLibrary({
                     onChange={(e) => onCutoff(s, Math.round(toHz(Number(e.target.value))))}
                   />
                   <em>{f.cutoff >= CUTOFF_MAX ? 'open' : `${(f.cutoff / 1000).toFixed(1)}k`}</em>
+                </label>
+              </div>
+              <div className="fx-row">
+                <label className="fx" title="Fade in — soften the attack, kill the click">
+                  <span>In</span>
+                  <input
+                    type="range" min={0} max={1} step={0.005} value={f.fadeIn}
+                    onChange={(e) => onFadeIn(s, Number(e.target.value))}
+                  />
+                  <em>{fadeLabel(f.fadeIn)}</em>
+                </label>
+                <label className="fx" title="Fade out — taper the tail, kill the click">
+                  <span>Out</span>
+                  <input
+                    type="range" min={0} max={1} step={0.005} value={f.fadeOut}
+                    onChange={(e) => onFadeOut(s, Number(e.target.value))}
+                  />
+                  <em>{fadeLabel(f.fadeOut)}</em>
                 </label>
               </div>
             </li>

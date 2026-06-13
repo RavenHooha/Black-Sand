@@ -9,6 +9,8 @@ export type SavedSample = {
   id: string; name: string; volume: number; wav: string
   pitch?: number // semitones (older sessions omit it)
   cutoff?: number // lowpass Hz
+  fadeIn?: number // seconds
+  fadeOut?: number // seconds
 }
 export type SavedClip = {
   id: string; sampleId: string; track: number; startSec: number

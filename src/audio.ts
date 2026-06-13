@@ -12,14 +12,37 @@ let dry: GainNode | null = null
 let wet: GainNode | null = null
 let convolver: ConvolverNode | null = null
 
-// Per-grain colour: pitch in semitones (down = murk), lowpass cutoff in Hz (down = dark).
-export type GrainFX = { pitch: number; cutoff: number }
-export const DEFAULT_FX: GrainFX = { pitch: 0, cutoff: 20000 }
+// Per-grain colour: pitch in semitones (down = murk), lowpass cutoff in Hz (down
+// = dark), and fade-in/out in real seconds (so chops don't click at the edges).
+export type GrainFX = { pitch: number; cutoff: number; fadeIn: number; fadeOut: number }
+export const DEFAULT_FX: GrainFX = { pitch: 0, cutoff: 20000, fadeIn: 0, fadeOut: 0 }
 export const CUTOFF_MAX = 20000
 
 /** A pitch shift of n semitones is a playback-rate of 2^(n/12). */
 export function rateOf(fx?: GrainFX): number {
   return Math.pow(2, (fx?.pitch ?? 0) / 12)
+}
+
+/**
+ * Schedule a fade-in / fade-out envelope on a grain's gain node.
+ * `realDur` is wall-clock seconds of the playback (Infinity for a held loop —
+ * only the fade-in is scheduled then). Fades are clamped so they never overlap.
+ */
+export function applyFades(g: GainNode, startTime: number, realDur: number, base: number, fx?: GrainFX): void {
+  const half = realDur / 2
+  const fi = Math.min(fx?.fadeIn ?? 0, half)
+  const fo = Math.min(fx?.fadeOut ?? 0, half)
+  const p = g.gain
+  if (fi > 0) {
+    p.setValueAtTime(0, startTime)
+    p.linearRampToValueAtTime(base, startTime + fi)
+  } else {
+    p.setValueAtTime(base, startTime)
+  }
+  if (fo > 0 && isFinite(realDur)) {
+    p.setValueAtTime(base, startTime + realDur - fo)
+    p.linearRampToValueAtTime(0, startTime + realDur)
+  }
 }
 
 export function audioCtx(): AudioContext {
@@ -101,10 +124,13 @@ export function playBuffer(buffer: AudioBuffer, gain = 0.9, fx?: GrainFX): Audio
   const c = audioCtx()
   const src = c.createBufferSource()
   src.buffer = buffer
-  colour(c, src, gain, fx).connect(ensureMaster())
+  const g = colour(c, src, gain, fx)
+  g.connect(ensureMaster())
   src.onended = () => oneShots.delete(src)
   oneShots.add(src)
-  src.start()
+  const t = c.currentTime
+  src.start(t)
+  applyFades(g, t, buffer.duration / rateOf(fx), gain, fx)
   return src
 }
 
@@ -115,8 +141,12 @@ export class Layer {
   private src: AudioBufferSourceNode
   private g: GainNode
   private filter: BiquadFilterNode
+  private baseGain: number
+  private fx?: GrainFX
   constructor(buffer: AudioBuffer, gain: number, fx?: GrainFX) {
     const c = audioCtx()
+    this.baseGain = gain
+    this.fx = fx
     this.g = c.createGain()
     this.g.gain.value = gain
     this.filter = c.createBiquadFilter()
@@ -129,7 +159,9 @@ export class Layer {
     this.src.connect(this.filter).connect(this.g).connect(ensureMaster())
   }
   start(): void {
-    this.src.start()
+    const t = audioCtx().currentTime
+    this.src.start(t)
+    applyFades(this.g, t, Infinity, this.baseGain, this.fx) // fade-in only for a held loop
     layers.add(this)
   }
   stop(): void {
@@ -137,7 +169,8 @@ export class Layer {
     layers.delete(this)
   }
   setGain(v: number): void {
-    this.g.gain.value = Math.max(0, Math.min(1.4, v))
+    this.baseGain = Math.max(0, Math.min(1.4, v))
+    this.g.gain.value = this.baseGain
   }
   setPitch(semitones: number): void {
     this.src.playbackRate.value = Math.pow(2, semitones / 12)
@@ -181,10 +214,13 @@ export function startTimeline(clips: TlClip[]): void {
   for (const clip of clips) {
     const src = c.createBufferSource()
     src.buffer = clip.buffer
-    colour(c, src, 1, clip.fx).connect(m)
+    const g = colour(c, src, 1, clip.fx)
+    g.connect(m)
     const offset = Math.max(0, clip.offset ?? 0)
     const length = Math.max(0.01, clip.length ?? clip.buffer.duration - offset)
-    try { src.start(t0 + Math.max(0, clip.startSec), offset, length) } catch { /* noop */ }
+    const when = t0 + Math.max(0, clip.startSec)
+    try { src.start(when, offset, length) } catch { /* noop */ }
+    applyFades(g, when, length / rateOf(clip.fx), 1, clip.fx)
     tlSources.push(src)
   }
 }
@@ -224,18 +260,23 @@ export async function renderMixdown(opts: {
   for (const clip of opts.clips) {
     const src = oc.createBufferSource()
     src.buffer = clip.buffer
-    colour(oc, src, 1, clip.fx).connect(m)
+    const g = colour(oc, src, 1, clip.fx)
+    g.connect(m)
     const offset = Math.max(0, clip.offset ?? 0)
     const length = Math.max(0.01, clip.length ?? clip.buffer.duration - offset)
-    try { src.start(Math.max(0, clip.startSec), offset, length) } catch { /* noop */ }
+    const when = Math.max(0, clip.startSec)
+    try { src.start(when, offset, length) } catch { /* noop */ }
+    applyFades(g, when, length / rateOf(clip.fx), 1, clip.fx)
   }
 
   for (const l of opts.layers) {
     const src = oc.createBufferSource()
     src.buffer = l.buffer
     src.loop = true
-    colour(oc, src, l.gain, l.fx).connect(m)
+    const g = colour(oc, src, l.gain, l.fx)
+    g.connect(m)
     try { src.start(0); src.stop(opts.durationSec) } catch { /* noop */ }
+    applyFades(g, 0, Infinity, l.gain, l.fx)
   }
 
   return await oc.startRendering()
