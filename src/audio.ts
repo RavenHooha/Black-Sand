@@ -237,6 +237,7 @@ export type TlClip = {
   startSec: number
   offset?: number
   length?: number
+  gain?: number // per-track mixer gain (mute/solo folded in)
   fx?: GrainFX
 }
 
@@ -248,13 +249,14 @@ export function startTimeline(clips: TlClip[], startTime?: number): void {
   for (const clip of clips) {
     const src = c.createBufferSource()
     src.buffer = clip.buffer
-    const g = colour(c, src, 1, clip.fx)
+    const vol = clip.gain ?? 1
+    const g = colour(c, src, vol, clip.fx)
     g.connect(m)
     const offset = Math.max(0, clip.offset ?? 0)
     const length = Math.max(0.01, clip.length ?? clip.buffer.duration - offset)
     const when = t0 + Math.max(0, clip.startSec)
     try { src.start(when, offset, length) } catch { /* noop */ }
-    applyFades(g, when, length / rateOf(clip.fx), 1, clip.fx)
+    applyFades(g, when, length / rateOf(clip.fx), vol, clip.fx)
     tlSources.push(src)
   }
 }
@@ -315,13 +317,14 @@ export async function renderMixdown(opts: {
   for (const clip of opts.clips) {
     const src = oc.createBufferSource()
     src.buffer = clip.buffer
-    const g = colour(oc, src, 1, clip.fx)
+    const vol = clip.gain ?? 1
+    const g = colour(oc, src, vol, clip.fx)
     g.connect(m)
     const offset = Math.max(0, clip.offset ?? 0)
     const length = Math.max(0.01, clip.length ?? clip.buffer.duration - offset)
     const when = Math.max(0, clip.startSec)
     try { src.start(when, offset, length) } catch { /* noop */ }
-    applyFades(g, when, length / rateOf(clip.fx), 1, clip.fx)
+    applyFades(g, when, length / rateOf(clip.fx), vol, clip.fx)
   }
 
   for (const l of opts.layers) {

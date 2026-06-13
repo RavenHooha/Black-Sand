@@ -26,6 +26,12 @@ type Props = {
   loop: boolean
   bpm: number
   gridBeats: number
+  trackVol: number[]
+  trackMute: boolean[]
+  trackSolo: boolean[]
+  onTrackVol: (i: number, v: number) => void
+  onTrackMute: (i: number) => void
+  onTrackSolo: (i: number) => void
   onBpm: (v: number) => void
   onGrid: (v: number) => void
   onAddClip: (sampleId: string, track: number, startSec: number) => void
@@ -45,7 +51,10 @@ type TrimPos = { clipId: string; startSec: number; offset: number; length: numbe
 
 /** The arranger: drop grains onto tracks, drag clips to move, drag their edges to trim. */
 export default function Timeline(props: Props) {
-  const { samples, clips, fx, tracks, pxPerSec, lengthSec, playheadSec, playing, loop, bpm, gridBeats } = props
+  const {
+    samples, clips, fx, tracks, pxPerSec, lengthSec, playheadSec, playing, loop, bpm, gridBeats,
+    trackVol, trackMute, trackSolo,
+  } = props
   const span = Math.max(lengthSec, 12)
   const width = span * pxPerSec
   const spb = 60 / bpm
@@ -212,7 +221,37 @@ export default function Timeline(props: Props) {
         <span className="hint small">drag to move · drag edges to trim</span>
       </div>
 
-      <div className="tl-scroll">
+      <div className="tl-body">
+        <div className="track-heads">
+          <div className="ruler-spacer" />
+          {Array.from({ length: tracks }, (_, tr) => {
+            const soloing = trackSolo.some(Boolean)
+            const dimmed = trackMute[tr] || (soloing && !trackSolo[tr])
+            return (
+              <div key={tr} className={dimmed ? 'track-head dim' : 'track-head'}>
+                <span className="th-num">{tr + 1}</span>
+                <input
+                  className="th-vol"
+                  type="range" min={0} max={1.2} step={0.01}
+                  value={trackVol[tr] ?? 1}
+                  onChange={(e) => props.onTrackVol(tr, Number(e.target.value))}
+                  title={`Track ${tr + 1} volume`}
+                />
+                <button
+                  className={trackMute[tr] ? 'th-btn m on' : 'th-btn m'}
+                  onClick={() => props.onTrackMute(tr)}
+                  title="Mute"
+                >M</button>
+                <button
+                  className={trackSolo[tr] ? 'th-btn s on' : 'th-btn s'}
+                  onClick={() => props.onTrackSolo(tr)}
+                  title="Solo"
+                >S</button>
+              </div>
+            )
+          })}
+        </div>
+        <div className="tl-scroll">
         <div className="tl-inner" style={{ width }}>
           <div className="ruler">
             {bars.map((bar) => (
@@ -256,6 +295,7 @@ export default function Timeline(props: Props) {
             ))}
             {playing && <div className="playhead" style={{ left: playheadSec * pxPerSec }} />}
           </div>
+        </div>
         </div>
       </div>
     </div>

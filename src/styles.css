@@ -111,8 +111,25 @@ main { flex-direction: column; }
 .tcount { color: #6c6a63; font-size: 12px; }
 .hint.small { font-size: 11px; color: #4f4d47; margin-left: auto; }
 
+.tl-body { flex: 1; display: flex; min-height: 0; }
 .tl-scroll { flex: 1; overflow: auto; }
 .tl-inner { position: relative; min-height: 100%; }
+
+/* per-track mixer gutter (aligned row-for-row with the grid) */
+.track-heads { width: 132px; flex-shrink: 0; border-right: 1px solid #161620; background: #0a0a0d; }
+.ruler-spacer { height: 18px; border-bottom: 1px solid #14141b; }
+.track-head {
+  height: 34px; border-bottom: 1px solid #121219; display: flex; align-items: center; gap: 5px; padding: 0 7px;
+}
+.track-head.dim { opacity: 0.45; }
+.th-num { width: 12px; font-size: 10px; color: #6c6a63; flex-shrink: 0; }
+.th-vol { flex: 1; min-width: 0; }
+.th-btn {
+  padding: 2px 6px; font-size: 10px; line-height: 1; border-radius: 4px;
+  background: #15151b; color: #8a8578; border: 1px solid #28282f; cursor: pointer;
+}
+.th-btn.m.on { background: #3a1f1f; border-color: #6e3636; color: #f0c9c9; }
+.th-btn.s.on { background: #2a2417; border-color: #715c30; color: #efe2c2; }
 
 .ruler { position: relative; height: 18px; border-bottom: 1px solid #14141b; }
 .ruler .tick { position: absolute; top: 2px; font-size: 10px; color: #45443f; }

@@ -32,6 +32,9 @@ export type Session = {
   drumGain?: number
   drumSwing?: number // 0..~0.6 — delay on the off-beat 16ths
   notes?: SavedNote[] // recorded keyboard part
+  trackVol?: number[] // per-timeline-track mixer
+  trackMute?: boolean[]
+  trackSolo?: boolean[]
   loopTl: boolean
   samples: SavedSample[]
   clips: SavedClip[]

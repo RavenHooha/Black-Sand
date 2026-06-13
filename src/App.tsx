@@ -78,6 +78,9 @@ export default function App() {
   const [loopTl, setLoopTl] = useState(true)
   const [bpm, setBpm] = useState(90)
   const [gridBeats, setGridBeats] = useState(0.5) // snap step in beats; 0 = off
+  const [trackVol, setTrackVol] = useState<number[]>(() => Array(TRACKS).fill(1))
+  const [trackMute, setTrackMute] = useState<boolean[]>(() => Array(TRACKS).fill(false))
+  const [trackSolo, setTrackSolo] = useState<boolean[]>(() => Array(TRACKS).fill(false))
   const [rendering, setRendering] = useState(false)
   const rafRef = useRef<number | null>(null)
   const openInputRef = useRef<HTMLInputElement>(null)
@@ -265,6 +268,23 @@ export default function App() {
     return length / rateOf(fx[c.sampleId])
   }
 
+  // effective gain for a track once mute + solo are folded in
+  function trackGain(track: number): number {
+    if (trackMute[track]) return 0
+    const anySolo = trackSolo.some(Boolean)
+    if (anySolo && !trackSolo[track]) return 0
+    return trackVol[track] ?? 1
+  }
+  function onTrackVol(i: number, v: number) {
+    setTrackVol((prev) => prev.map((x, idx) => (idx === i ? v : x)))
+  }
+  function onTrackMute(i: number) {
+    setTrackMute((prev) => prev.map((x, idx) => (idx === i ? !x : x)))
+  }
+  function onTrackSolo(i: number) {
+    setTrackSolo((prev) => prev.map((x, idx) => (idx === i ? !x : x)))
+  }
+
   function lengthSec(): number {
     let end = 8
     for (const c of clips) {
@@ -280,7 +300,7 @@ export default function App() {
     const buffers = clips
       .map((c) => {
         const s = samples.find((x) => x.id === c.sampleId)
-        return s ? { buffer: s.buffer, startSec: c.startSec, offset: c.offset, length: c.length, fx: fx[c.sampleId] } : null
+        return s ? { buffer: s.buffer, startSec: c.startSec, offset: c.offset, length: c.length, gain: trackGain(c.track), fx: fx[c.sampleId] } : null
       })
       .filter((x): x is NonNullable<typeof x> => !!x)
     const drumsActive = hasDrumSteps()
@@ -375,7 +395,8 @@ export default function App() {
     }))
     const session: Session = {
       version: 1, bpm, gridBeats, haze, echo, echoBeats, loopTl,
-      drumPattern, drumGain, drumSwing, notes: recordedNotes, samples: savedSamples, clips,
+      drumPattern, drumGain, drumSwing, notes: recordedNotes,
+      trackVol, trackMute, trackSolo, samples: savedSamples, clips,
     }
     if (await saveTextNative(JSON.stringify(session), 'black-sand-session.blacksand', 'blacksand', 'Black Sand')) return
     downloadSession(session, 'black-sand-session')
@@ -412,6 +433,9 @@ export default function App() {
       setDrumGain(session.drumGain ?? 0.9)
       setDrumSwing(session.drumSwing ?? 0)
       setRecordedNotes(session.notes ?? [])
+      setTrackVol(Array.from({ length: TRACKS }, (_, i) => session.trackVol?.[i] ?? 1))
+      setTrackMute(Array.from({ length: TRACKS }, (_, i) => session.trackMute?.[i] ?? false))
+      setTrackSolo(Array.from({ length: TRACKS }, (_, i) => session.trackSolo?.[i] ?? false))
       setLooping(new Set())
     } catch (err) {
       alert('Could not open that file — is it a .blacksand session?')
@@ -440,7 +464,7 @@ export default function App() {
     const tlClips = clips
       .map((c) => {
         const s = samples.find((x) => x.id === c.sampleId)
-        return s ? { buffer: s.buffer, startSec: c.startSec, offset: c.offset, length: c.length, fx: fx[c.sampleId] } : null
+        return s ? { buffer: s.buffer, startSec: c.startSec, offset: c.offset, length: c.length, gain: trackGain(c.track), fx: fx[c.sampleId] } : null
       })
       .filter((x): x is NonNullable<typeof x> => !!x)
     const activeLayers = [...looping]
@@ -557,6 +581,12 @@ export default function App() {
           loop={loopTl}
           bpm={bpm}
           gridBeats={gridBeats}
+          trackVol={trackVol}
+          trackMute={trackMute}
+          trackSolo={trackSolo}
+          onTrackVol={onTrackVol}
+          onTrackMute={onTrackMute}
+          onTrackSolo={onTrackSolo}
           onBpm={setBpm}
           onGrid={setGridBeats}
           onAddClip={addClip}
