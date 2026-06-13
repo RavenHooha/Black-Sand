@@ -224,6 +224,7 @@ export function stopAll(): void {
   layers.forEach((l) => l.stop())
   layers.clear()
   stopTimeline()
+  stopDrums()
 }
 
 // --- timeline playback: schedule a pass of placed clips through the master bus ---
@@ -238,11 +239,11 @@ export type TlClip = {
   fx?: GrainFX
 }
 
-export function startTimeline(clips: TlClip[]): void {
+export function startTimeline(clips: TlClip[], startTime?: number): void {
   stopTimeline()
   const c = audioCtx()
   const m = ensureMaster()
-  const t0 = c.currentTime + 0.08
+  const t0 = startTime ?? c.currentTime + 0.08
   for (const clip of clips) {
     const src = c.createBufferSource()
     src.buffer = clip.buffer
@@ -276,6 +277,9 @@ export async function renderMixdown(opts: {
   echo?: number
   echoTimeSec?: number
   echoFeedback?: number
+  bpm?: number
+  drums?: boolean[][]
+  drumGain?: number
   durationSec: number
   tailSec?: number
 }): Promise<AudioBuffer> {
@@ -327,5 +331,132 @@ export async function renderMixdown(opts: {
     applyFades(g, 0, Infinity, l.gain, l.fx)
   }
 
+  // drum pattern, looped across the whole arrangement
+  if (opts.drums && opts.bpm) {
+    const stepDur = (60 / opts.bpm) / 4
+    const dgain = opts.drumGain ?? 0.9
+    let step = 0
+    for (let t = 0; t < opts.durationSec; t += stepDur) {
+      const col = step % DRUM_STEPS
+      for (let v = 0; v < opts.drums.length; v++) {
+        if (opts.drums[v]?.[col]) hitDrum(oc, t, DRUM_VOICES[v], m, dgain)
+      }
+      step++
+    }
+  }
+
   return await oc.startRendering()
+}
+
+// --- drum machine: synthesized voices + a lookahead step sequencer ---
+export type DrumVoice = 'kick' | 'snare' | 'hat' | 'openhat'
+export const DRUM_VOICES: DrumVoice[] = ['kick', 'snare', 'hat', 'openhat']
+export const DRUM_STEPS = 16
+
+let noiseBuf: AudioBuffer | null = null
+function noiseBuffer(c: BaseAudioContext): AudioBuffer {
+  if (noiseBuf && noiseBuf.sampleRate === c.sampleRate) return noiseBuf
+  const len = Math.floor(c.sampleRate)
+  const b = c.createBuffer(1, len, c.sampleRate)
+  const d = b.getChannelData(0)
+  for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1
+  noiseBuf = b
+  return b
+}
+
+function hitKick(c: BaseAudioContext, when: number, out: AudioNode, gain: number): void {
+  const osc = c.createOscillator()
+  const g = c.createGain()
+  osc.frequency.setValueAtTime(140, when)
+  osc.frequency.exponentialRampToValueAtTime(45, when + 0.08)
+  g.gain.setValueAtTime(Math.max(0.0001, gain), when)
+  g.gain.exponentialRampToValueAtTime(0.0001, when + 0.32)
+  osc.connect(g).connect(out)
+  osc.start(when); osc.stop(when + 0.34)
+}
+
+function hitSnare(c: BaseAudioContext, when: number, out: AudioNode, gain: number): void {
+  const n = c.createBufferSource(); n.buffer = noiseBuffer(c)
+  const nf = c.createBiquadFilter(); nf.type = 'highpass'; nf.frequency.value = 1500
+  const ng = c.createGain()
+  ng.gain.setValueAtTime(Math.max(0.0001, gain * 0.8), when)
+  ng.gain.exponentialRampToValueAtTime(0.0001, when + 0.2)
+  n.connect(nf).connect(ng).connect(out)
+  n.start(when); n.stop(when + 0.22)
+  const o = c.createOscillator(); o.type = 'triangle'; o.frequency.value = 180
+  const og = c.createGain()
+  og.gain.setValueAtTime(Math.max(0.0001, gain * 0.5), when)
+  og.gain.exponentialRampToValueAtTime(0.0001, when + 0.12)
+  o.connect(og).connect(out); o.start(when); o.stop(when + 0.14)
+}
+
+function hitHat(c: BaseAudioContext, when: number, out: AudioNode, gain: number, open: boolean): void {
+  const n = c.createBufferSource(); n.buffer = noiseBuffer(c)
+  const hp = c.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 7000
+  const g = c.createGain()
+  const dec = open ? 0.3 : 0.05
+  g.gain.setValueAtTime(Math.max(0.0001, gain * 0.5), when)
+  g.gain.exponentialRampToValueAtTime(0.0001, when + dec)
+  n.connect(hp).connect(g).connect(out)
+  n.start(when); n.stop(when + dec + 0.02)
+}
+
+function hitDrum(c: BaseAudioContext, when: number, voice: DrumVoice, out: AudioNode, gain: number): void {
+  switch (voice) {
+    case 'kick': hitKick(c, when, out, gain); break
+    case 'snare': hitSnare(c, when, out, gain); break
+    case 'hat': hitHat(c, when, out, gain, false); break
+    case 'openhat': hitHat(c, when, out, gain, true); break
+  }
+}
+
+// lookahead scheduler — schedules drum hits on the audio clock a little ahead of time
+let drumTimer: number | null = null
+let drumState: { pattern: boolean[][]; bpm: number; gain: number } | null = null
+let drumNextTime = 0
+let drumOrigin = 0
+let drumStep = 0
+
+export function startDrums(pattern: boolean[][], bpm: number, gain: number, startTime?: number): void {
+  stopDrums()
+  const c = audioCtx()
+  drumState = { pattern, bpm, gain }
+  drumOrigin = startTime ?? c.currentTime + 0.1
+  drumNextTime = drumOrigin
+  drumStep = 0
+  drumTimer = window.setInterval(drumScheduler, 25)
+}
+
+/** Swap in a live-edited pattern / tempo / level without restarting the clock. */
+export function updateDrums(pattern: boolean[][], bpm: number, gain: number): void {
+  if (drumState) drumState = { pattern, bpm, gain }
+}
+
+function drumScheduler(): void {
+  if (!drumState) return
+  const c = audioCtx()
+  const out = ensureMaster()
+  const stepDur = (60 / drumState.bpm) / 4
+  while (drumNextTime < c.currentTime + 0.1) {
+    const col = drumStep % DRUM_STEPS
+    for (let v = 0; v < drumState.pattern.length; v++) {
+      if (drumState.pattern[v]?.[col]) hitDrum(c, drumNextTime, DRUM_VOICES[v], out, drumState.gain)
+    }
+    drumStep++
+    drumNextTime += stepDur
+  }
+}
+
+export function stopDrums(): void {
+  if (drumTimer != null) { clearInterval(drumTimer); drumTimer = null }
+  drumState = null
+}
+
+/** The drum step currently sounding (for the moving highlight), or -1 when stopped. */
+export function currentDrumStep(): number {
+  if (!drumState) return -1
+  const c = audioCtx()
+  const stepDur = (60 / drumState.bpm) / 4
+  const s = Math.floor((c.currentTime - drumOrigin) / stepDur)
+  return s < 0 ? -1 : s % DRUM_STEPS
 }

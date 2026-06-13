@@ -25,6 +25,8 @@ export type Session = {
   haze: number
   echo?: number // dub-echo send (older sessions omit it)
   echoBeats?: number // echo note division in beats
+  drumPattern?: boolean[][] // drum-machine grid (voices x steps)
+  drumGain?: number
   loopTl: boolean
   samples: SavedSample[]
   clips: SavedClip[]

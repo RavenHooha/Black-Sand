@@ -1,19 +1,33 @@
 import React, { useEffect, useRef, useState } from 'react'
 import {
-  decodeFile, sliceBuffer, stopAll, startLayer, setHaze as applyHaze,
+  audioCtx, decodeFile, sliceBuffer, stopAll, startLayer, setHaze as applyHaze,
   setEcho as applyEcho, setEchoTime, startTimeline, stopTimeline, renderMixdown,
+  startDrums, stopDrums, updateDrums, currentDrumStep, DRUM_VOICES, DRUM_STEPS,
   Layer, GrainFX, DEFAULT_FX, rateOf,
 } from './audio'
 import Waveform from './components/Waveform'
 import SampleLibrary, { Sample } from './components/SampleLibrary'
 import Timeline, { Clip } from './components/Timeline'
+import DrumMachine from './components/DrumMachine'
 import { encodeWav, bufToBase64, downloadSession, downloadWav, readSessionFile, Session, SavedSample } from './session'
 
 const TRACKS = 5
 const PX_PER_SEC = 80
+const DRUM_LABELS = ['Kick', 'Snare', 'Hat', 'Open']
 
 function uid(): string {
   return (crypto as Crypto & { randomUUID?: () => string }).randomUUID?.() ?? String(Date.now() + Math.random())
+}
+
+function emptyDrums(): boolean[][] {
+  return DRUM_VOICES.map(() => Array(DRUM_STEPS).fill(false))
+}
+
+// coerce a loaded pattern into the expected voices x steps shape (old sessions have none)
+function normalizeDrums(saved?: boolean[][]): boolean[][] {
+  return DRUM_VOICES.map((_, v) =>
+    Array.from({ length: DRUM_STEPS }, (_, i) => Boolean(saved?.[v]?.[i]))
+  )
 }
 
 export default function App() {
@@ -32,6 +46,11 @@ export default function App() {
   const [haze, setHaze] = useState(0.25)
   const [echo, setEchoAmt] = useState(0)
   const [echoBeats, setEchoBeats] = useState(0.75) // dotted 1/8 — the classic dub division
+
+  // drum machine
+  const [drumPattern, setDrumPattern] = useState<boolean[][]>(emptyDrums)
+  const [drumGain, setDrumGain] = useState(0.9)
+  const [drumStep, setDrumStep] = useState(-1) // currently-sounding step for the highlight
 
   // timeline
   const [clips, setClips] = useState<Clip[]>([])
@@ -120,6 +139,24 @@ export default function App() {
   const echoTimeSec = echoBeats * (60 / bpm)
   useEffect(() => { setEchoTime(echoTimeSec) }, [echoTimeSec])
 
+  // --- drums ---
+  function hasDrumSteps(): boolean {
+    return drumPattern.some((row) => row.some(Boolean))
+  }
+  function toggleDrum(voice: number, step: number) {
+    setDrumPattern((prev) =>
+      prev.map((row, v) => (v === voice ? row.map((on, i) => (i === step ? !on : on)) : row))
+    )
+  }
+  function clearDrums() {
+    setDrumPattern(emptyDrums())
+  }
+
+  // push live pattern / tempo / level edits to the running drum scheduler
+  useEffect(() => {
+    if (playing) updateDrums(drumPattern, bpm, drumGain)
+  }, [drumPattern, bpm, drumGain, playing])
+
   // --- timeline ---
   // wall-clock length of a placed clip: trimmed length / pitch rate
   function clipRealDur(c: Clip, s: Sample): number {
@@ -144,22 +181,27 @@ export default function App() {
         return s ? { buffer: s.buffer, startSec: c.startSec, offset: c.offset, length: c.length, fx: fx[c.sampleId] } : null
       })
       .filter((x): x is NonNullable<typeof x> => !!x)
-    if (buffers.length === 0) return
+    const drumsActive = hasDrumSteps()
+    if (buffers.length === 0 && !drumsActive) return
 
     const len = lengthSec()
     const loop = loopTl
-    startTimeline(buffers)
+    const at = audioCtx().currentTime + 0.1 // shared start so clips + drums lock together
+    if (buffers.length) startTimeline(buffers, at)
+    startDrums(drumPattern, bpm, drumGain, at)
     setPlaying(true)
 
     const t0 = performance.now()
     let boundary = len
     const tick = () => {
       const elapsed = (performance.now() - t0) / 1000
+      setDrumStep(currentDrumStep())
       if (loop) {
-        if (elapsed >= boundary) { startTimeline(buffers); boundary += len }
+        if (elapsed >= boundary) { if (buffers.length) startTimeline(buffers); boundary += len }
         setPlayhead(elapsed % len)
       } else if (elapsed >= len) {
-        stopTimeline(); setPlaying(false); setPlayhead(0); rafRef.current = null
+        stopTimeline(); stopDrums(); setDrumStep(-1)
+        setPlaying(false); setPlayhead(0); rafRef.current = null
         return
       } else {
         setPlayhead(elapsed)
@@ -171,9 +213,11 @@ export default function App() {
 
   function stopTl() {
     stopTimeline()
+    stopDrums()
     if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null }
     setPlaying(false)
     setPlayhead(0)
+    setDrumStep(-1)
   }
 
   function addClip(sampleId: string, track: number, startSec: number) {
@@ -196,6 +240,7 @@ export default function App() {
     if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null }
     setPlaying(false)
     setPlayhead(0)
+    setDrumStep(-1)
   }
 
   // --- save / load ---
@@ -214,7 +259,10 @@ export default function App() {
       fadeOut: fx[s.id]?.fadeOut ?? DEFAULT_FX.fadeOut,
       wav: bufToBase64(encodeWav(s.buffer)),
     }))
-    const session: Session = { version: 1, bpm, gridBeats, haze, echo, echoBeats, loopTl, samples: savedSamples, clips }
+    const session: Session = {
+      version: 1, bpm, gridBeats, haze, echo, echoBeats, loopTl,
+      drumPattern, drumGain, samples: savedSamples, clips,
+    }
     downloadSession(session, 'black-sand-session')
   }
 
@@ -247,6 +295,8 @@ export default function App() {
       setEchoAmt(session.echo ?? 0)
       applyEcho(session.echo ?? 0)
       setEchoBeats(session.echoBeats ?? 0.75)
+      setDrumPattern(normalizeDrums(session.drumPattern))
+      setDrumGain(session.drumGain ?? 0.9)
       setLooping(new Set())
     } catch (err) {
       alert('Could not open that file — is it a .blacksand session?')
@@ -272,8 +322,8 @@ export default function App() {
       })
       .filter((x): x is NonNullable<typeof x> => !!x)
 
-    if (tlClips.length === 0 && activeLayers.length === 0) {
-      alert('Nothing to bounce yet — arrange some clips or loop a layer first.')
+    if (tlClips.length === 0 && activeLayers.length === 0 && !hasDrumSteps()) {
+      alert('Nothing to bounce yet — arrange some clips, loop a layer, or program a beat first.')
       return
     }
     setRendering(true)
@@ -281,6 +331,7 @@ export default function App() {
       const mix = await renderMixdown({
         clips: tlClips, layers: activeLayers, haze,
         echo, echoTimeSec, echoFeedback: 0.35,
+        bpm, drums: drumPattern, drumGain,
         durationSec: lengthSec(),
       })
       downloadWav(mix, 'black-sand-mix')
@@ -388,6 +439,16 @@ export default function App() {
           onPlay={play}
           onStop={stopTl}
           onToggleLoop={() => setLoopTl((v) => !v)}
+        />
+
+        <DrumMachine
+          labels={DRUM_LABELS}
+          pattern={drumPattern}
+          step={drumStep}
+          gain={drumGain}
+          onToggle={toggleDrum}
+          onClear={clearDrums}
+          onGain={setDrumGain}
         />
       </main>
     </div>
