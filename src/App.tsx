@@ -53,6 +53,7 @@ export default function App() {
   // drum machine
   const [drumPattern, setDrumPattern] = useState<boolean[][]>(emptyDrums)
   const [drumGain, setDrumGain] = useState(0.9)
+  const [drumSwing, setDrumSwing] = useState(0) // 0..0.6 — delay on the off-beat 16ths
   const [drumStep, setDrumStep] = useState(-1) // currently-sounding step for the highlight
 
   // keyboard
@@ -171,10 +172,10 @@ export default function App() {
     setDrumPattern(emptyDrums())
   }
 
-  // push live pattern / tempo / level edits to the running drum scheduler
+  // push live pattern / tempo / level / swing edits to the running drum scheduler
   useEffect(() => {
-    if (playing) updateDrums(drumPattern, bpm, drumGain)
-  }, [drumPattern, bpm, drumGain, playing])
+    if (playing) updateDrums(drumPattern, bpm, drumGain, drumSwing)
+  }, [drumPattern, bpm, drumGain, drumSwing, playing])
 
   // --- keyboard ---
   // stash live values so the global key listener can stay stable (no re-subscribe churn)
@@ -287,7 +288,7 @@ export default function App() {
     const loop = loopTl
     const at = audioCtx().currentTime + 0.1 // shared start so clips + drums + notes lock together
     if (buffers.length) startTimeline(buffers, at)
-    startDrums(drumPattern, bpm, drumGain, at)
+    startDrums(drumPattern, bpm, drumGain, drumSwing, at)
     startNotes(resolveNotes(), at)
     playOriginRef.current = at
     playLenRef.current = len
@@ -372,7 +373,7 @@ export default function App() {
     }))
     const session: Session = {
       version: 1, bpm, gridBeats, haze, echo, echoBeats, loopTl,
-      drumPattern, drumGain, notes: recordedNotes, samples: savedSamples, clips,
+      drumPattern, drumGain, drumSwing, notes: recordedNotes, samples: savedSamples, clips,
     }
     downloadSession(session, 'black-sand-session')
   }
@@ -408,6 +409,7 @@ export default function App() {
       setEchoBeats(session.echoBeats ?? 0.75)
       setDrumPattern(normalizeDrums(session.drumPattern))
       setDrumGain(session.drumGain ?? 0.9)
+      setDrumSwing(session.drumSwing ?? 0)
       setRecordedNotes(session.notes ?? [])
       setLooping(new Set())
     } catch (err) {
@@ -443,7 +445,7 @@ export default function App() {
       const mix = await renderMixdown({
         clips: tlClips, layers: activeLayers, haze,
         echo, echoTimeSec, echoFeedback: 0.35,
-        bpm, drums: drumPattern, drumGain, notes: resolveNotes(),
+        bpm, drums: drumPattern, drumGain, drumSwing, notes: resolveNotes(),
         durationSec: lengthSec(),
       })
       downloadWav(mix, 'black-sand-mix')
@@ -558,9 +560,11 @@ export default function App() {
           pattern={drumPattern}
           step={drumStep}
           gain={drumGain}
+          swing={drumSwing}
           onToggle={toggleDrum}
           onClear={clearDrums}
           onGain={setDrumGain}
+          onSwing={setDrumSwing}
         />
 
         <Keyboard

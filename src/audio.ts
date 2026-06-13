@@ -281,6 +281,7 @@ export async function renderMixdown(opts: {
   bpm?: number
   drums?: boolean[][]
   drumGain?: number
+  drumSwing?: number
   notes?: ScheduledNote[]
   durationSec: number
   tailSec?: number
@@ -342,11 +343,13 @@ export async function renderMixdown(opts: {
   if (opts.drums && opts.bpm) {
     const stepDur = (60 / opts.bpm) / 4
     const dgain = opts.drumGain ?? 0.9
+    const swing = opts.drumSwing ?? 0
     let step = 0
     for (let t = 0; t < opts.durationSec; t += stepDur) {
       const col = step % DRUM_STEPS
+      const when = t + (step % 2 === 1 ? swing * stepDur : 0)
       for (let v = 0; v < opts.drums.length; v++) {
-        if (opts.drums[v]?.[col]) hitDrum(oc, t, DRUM_VOICES[v], m, dgain)
+        if (opts.drums[v]?.[col]) hitDrum(oc, when, DRUM_VOICES[v], m, dgain)
       }
       step++
     }
@@ -419,24 +422,24 @@ function hitDrum(c: BaseAudioContext, when: number, voice: DrumVoice, out: Audio
 
 // lookahead scheduler — schedules drum hits on the audio clock a little ahead of time
 let drumTimer: number | null = null
-let drumState: { pattern: boolean[][]; bpm: number; gain: number } | null = null
+let drumState: { pattern: boolean[][]; bpm: number; gain: number; swing: number } | null = null
 let drumNextTime = 0
 let drumOrigin = 0
 let drumStep = 0
 
-export function startDrums(pattern: boolean[][], bpm: number, gain: number, startTime?: number): void {
+export function startDrums(pattern: boolean[][], bpm: number, gain: number, swing = 0, startTime?: number): void {
   stopDrums()
   const c = audioCtx()
-  drumState = { pattern, bpm, gain }
+  drumState = { pattern, bpm, gain, swing }
   drumOrigin = startTime ?? c.currentTime + 0.1
   drumNextTime = drumOrigin
   drumStep = 0
   drumTimer = window.setInterval(drumScheduler, 25)
 }
 
-/** Swap in a live-edited pattern / tempo / level without restarting the clock. */
-export function updateDrums(pattern: boolean[][], bpm: number, gain: number): void {
-  if (drumState) drumState = { pattern, bpm, gain }
+/** Swap in a live-edited pattern / tempo / level / swing without restarting the clock. */
+export function updateDrums(pattern: boolean[][], bpm: number, gain: number, swing = 0): void {
+  if (drumState) drumState = { pattern, bpm, gain, swing }
 }
 
 function drumScheduler(): void {
@@ -446,8 +449,10 @@ function drumScheduler(): void {
   const stepDur = (60 / drumState.bpm) / 4
   while (drumNextTime < c.currentTime + 0.1) {
     const col = drumStep % DRUM_STEPS
+    // swing nudges every odd 16th later, keeping the grid clock itself steady
+    const when = drumNextTime + (drumStep % 2 === 1 ? drumState.swing * stepDur : 0)
     for (let v = 0; v < drumState.pattern.length; v++) {
-      if (drumState.pattern[v]?.[col]) hitDrum(c, drumNextTime, DRUM_VOICES[v], out, drumState.gain)
+      if (drumState.pattern[v]?.[col]) hitDrum(c, when, DRUM_VOICES[v], out, drumState.gain)
     }
     drumStep++
     drumNextTime += stepDur

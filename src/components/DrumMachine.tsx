@@ -3,9 +3,11 @@ type Props = {
   pattern: boolean[][]
   step: number // currently-sounding step, or -1
   gain: number
+  swing: number
   onToggle: (voice: number, step: number) => void
   onClear: () => void
   onGain: (v: number) => void
+  onSwing: (v: number) => void
 }
 
 /**
@@ -13,12 +15,17 @@ type Props = {
  * tempo-locked to the timeline BPM and run through the master bus — so the
  * Haze and Echo land on the drums too.
  */
-export default function DrumMachine({ labels, pattern, step, gain, onToggle, onClear, onGain }: Props) {
+export default function DrumMachine({ labels, pattern, step, gain, swing, onToggle, onClear, onGain, onSwing }: Props) {
   const steps = pattern[0]?.length ?? 16
   return (
     <div className="drums">
       <div className="drums-head">
         <h2>Drum Machine</h2>
+        <label className="haze" title="Swing — push the off-beats late for a shuffle">
+          <span>Swing</span>
+          <input type="range" min={0} max={0.6} step={0.01} value={swing} onChange={(e) => onSwing(Number(e.target.value))} />
+          <em className="swing-val">{Math.round((swing / 0.6) * 100)}%</em>
+        </label>
         <label className="haze" title="Drum level">
           <span>Level</span>
           <input type="range" min={0} max={1.2} step={0.01} value={gain} onChange={(e) => onGain(Number(e.target.value))} />
