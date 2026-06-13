@@ -382,9 +382,10 @@ export async function renderMixdown(opts: {
     const swing = opts.drumSwing ?? 0
     const vGain = opts.drumVoiceGain ?? []
     const vTune = opts.drumVoiceTune ?? []
+    const steps = opts.drums[0]?.length || DRUM_STEPS
     let step = 0
     for (let t = 0; t < opts.durationSec; t += stepDur) {
-      const col = step % DRUM_STEPS
+      const col = step % steps
       const when = t + (step % 2 === 1 ? swing * stepDur : 0)
       for (let v = 0; v < opts.drums.length; v++) {
         if (opts.drums[v]?.[col]) hitDrum(oc, when, DRUM_VOICES[v], m, dgain * (vGain[v] ?? 1), vTune[v] ?? 0)
@@ -401,7 +402,8 @@ export async function renderMixdown(opts: {
 // (which are positional) still line up with the right rows.
 export type DrumVoice = 'kick' | 'snare' | 'hat' | 'openhat' | 'clap' | 'rim' | 'tom' | 'shaker'
 export const DRUM_VOICES: DrumVoice[] = ['kick', 'snare', 'hat', 'openhat', 'clap', 'rim', 'tom', 'shaker']
-export const DRUM_STEPS = 16
+export const DRUM_STEPS = 16 // default pattern length; actual length is the pattern width
+const stepCount = (pattern: boolean[][]) => pattern[0]?.length || DRUM_STEPS
 
 let noiseBuf: AudioBuffer | null = null
 function noiseBuffer(c: BaseAudioContext): AudioBuffer {
@@ -561,8 +563,9 @@ function drumScheduler(): void {
   const c = audioCtx()
   const out = ensureMaster()
   const stepDur = (60 / drumState.bpm) / 4
+  const steps = stepCount(drumState.pattern)
   while (drumNextTime < c.currentTime + 0.1) {
-    const col = drumStep % DRUM_STEPS
+    const col = drumStep % steps
     // swing nudges every odd 16th later, keeping the grid clock itself steady
     const when = drumNextTime + (drumStep % 2 === 1 ? drumState.swing * stepDur : 0)
     for (let v = 0; v < drumState.pattern.length; v++) {
@@ -587,7 +590,7 @@ export function currentDrumStep(): number {
   const c = audioCtx()
   const stepDur = (60 / drumState.bpm) / 4
   const s = Math.floor((c.currentTime - drumOrigin) / stepDur)
-  return s < 0 ? -1 : s % DRUM_STEPS
+  return s < 0 ? -1 : s % stepCount(drumState.pattern)
 }
 
 // --- playable keyboard: pitch a grain across the keys, sustain it while held ---

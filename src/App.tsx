@@ -35,14 +35,16 @@ type Snap = {
   trackVol: number[]; trackMute: boolean[]; trackSolo: boolean[]; keyInstrument: string
 }
 
-function emptyDrums(): boolean[][] {
-  return DRUM_VOICES.map(() => Array(DRUM_STEPS).fill(false))
+function emptyDrums(steps: number = DRUM_STEPS): boolean[][] {
+  return DRUM_VOICES.map(() => Array(steps).fill(false))
 }
 
-// coerce a loaded pattern into the expected voices x steps shape (old sessions have none)
+// coerce a loaded pattern into the expected voices x steps shape, preserving its
+// length (old sessions have no pattern → default length)
 function normalizeDrums(saved?: boolean[][]): boolean[][] {
+  const steps = saved?.[0]?.length || DRUM_STEPS
   return DRUM_VOICES.map((_, v) =>
-    Array.from({ length: DRUM_STEPS }, (_, i) => Boolean(saved?.[v]?.[i]))
+    Array.from({ length: steps }, (_, i) => Boolean(saved?.[v]?.[i]))
   )
 }
 
@@ -208,7 +210,10 @@ export default function App() {
     )
   }
   function clearDrums() {
-    setDrumPattern(emptyDrums())
+    setDrumPattern((prev) => emptyDrums(prev[0]?.length || DRUM_STEPS))
+  }
+  function setDrumLength(steps: number) {
+    setDrumPattern((prev) => prev.map((row) => Array.from({ length: steps }, (_, i) => row[i] ?? false)))
   }
   function onVoiceGain(v: number, val: number) {
     setDrumVoiceGain((prev) => prev.map((x, i) => (i === v ? val : x)))
@@ -755,6 +760,7 @@ export default function App() {
           onSwing={setDrumSwing}
           onVoiceGain={onVoiceGain}
           onVoiceTune={onVoiceTune}
+          onLength={setDrumLength}
         />
 
         <Keyboard

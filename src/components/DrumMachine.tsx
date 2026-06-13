@@ -12,6 +12,7 @@ type Props = {
   onSwing: (v: number) => void
   onVoiceGain: (voice: number, v: number) => void
   onVoiceTune: (voice: number, v: number) => void
+  onLength: (steps: number) => void
 }
 
 /**
@@ -21,9 +22,10 @@ type Props = {
  */
 export default function DrumMachine({
   labels, pattern, step, gain, swing, voiceGain, voiceTune,
-  onToggle, onClear, onGain, onSwing, onVoiceGain, onVoiceTune,
+  onToggle, onClear, onGain, onSwing, onVoiceGain, onVoiceTune, onLength,
 }: Props) {
   const steps = pattern[0]?.length ?? 16
+  const beats = Math.max(1, Math.round(steps / 4))
   return (
     <div className="drums">
       <div className="drums-head">
@@ -36,6 +38,15 @@ export default function DrumMachine({
         <label className="haze" title="Drum level">
           <span>Level</span>
           <input type="range" min={0} max={1.2} step={0.01} value={gain} onChange={(e) => onGain(Number(e.target.value))} />
+        </label>
+        <label className="tfield" title="Pattern length in 16th-note steps">
+          Steps
+          <select value={steps} onChange={(e) => onLength(Number(e.target.value))}>
+            <option value={8}>8</option>
+            <option value={16}>16</option>
+            <option value={24}>24</option>
+            <option value={32}>32</option>
+          </select>
         </label>
         <button className="tbtn" onClick={onClear} title="Clear the pattern">Clear</button>
       </div>
@@ -55,7 +66,7 @@ export default function DrumMachine({
                 title={`${labels[v]} tune (${(voiceTune[v] ?? 0) > 0 ? '+' : ''}${voiceTune[v] ?? 0} st)`}
               />
             </div>
-            <div className="drum-cells">
+            <div className="drum-cells" style={{ gridTemplateColumns: `repeat(${steps}, 1fr)` }}>
               {row.map((on, i) => (
                 <button
                   key={i}
@@ -72,8 +83,8 @@ export default function DrumMachine({
             </div>
           </div>
         ))}
-        <div className="beat-marks" style={{ ['--steps' as string]: steps }}>
-          {Array.from({ length: steps / 4 }, (_, b) => (
+        <div className="beat-marks" style={{ gridTemplateColumns: `repeat(${beats}, 1fr)` }}>
+          {Array.from({ length: beats }, (_, b) => (
             <span key={b}>{b + 1}</span>
           ))}
         </div>
