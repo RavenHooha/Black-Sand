@@ -6,12 +6,14 @@ type Props = {
   swing: number
   voiceGain: number[]
   voiceTune: number[]
+  voiceDecay: number[]
   onToggle: (voice: number, step: number) => void
   onClear: () => void
   onGain: (v: number) => void
   onSwing: (v: number) => void
   onVoiceGain: (voice: number, v: number) => void
   onVoiceTune: (voice: number, v: number) => void
+  onVoiceDecay: (voice: number, v: number) => void
   onLength: (steps: number) => void
 }
 
@@ -21,8 +23,8 @@ type Props = {
  * Haze and Echo land on the drums too.
  */
 export default function DrumMachine({
-  labels, pattern, step, gain, swing, voiceGain, voiceTune,
-  onToggle, onClear, onGain, onSwing, onVoiceGain, onVoiceTune, onLength,
+  labels, pattern, step, gain, swing, voiceGain, voiceTune, voiceDecay,
+  onToggle, onClear, onGain, onSwing, onVoiceGain, onVoiceTune, onVoiceDecay, onLength,
 }: Props) {
   const steps = pattern[0]?.length ?? 16
   const beats = Math.max(1, Math.round(steps / 4))
@@ -64,6 +66,11 @@ export default function DrumMachine({
                 className="dv-tune" type="range" min={-12} max={12} step={1}
                 value={voiceTune[v] ?? 0} onChange={(e) => onVoiceTune(v, Number(e.target.value))}
                 title={`${labels[v]} tune (${(voiceTune[v] ?? 0) > 0 ? '+' : ''}${voiceTune[v] ?? 0} st)`}
+              />
+              <input
+                className="dv-dec" type="range" min={0.3} max={2.5} step={0.01}
+                value={voiceDecay[v] ?? 1} onChange={(e) => onVoiceDecay(v, Number(e.target.value))}
+                title={`${labels[v]} decay (${(voiceDecay[v] ?? 1).toFixed(2)}x)`}
               />
             </div>
             <div className="drum-cells" style={{ gridTemplateColumns: `repeat(${steps}, 1fr)` }}>

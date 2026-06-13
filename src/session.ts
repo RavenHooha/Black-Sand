@@ -33,6 +33,7 @@ export type Session = {
   drumSwing?: number // 0..~0.6 — delay on the off-beat 16ths
   drumVoiceGain?: number[] // per-voice level
   drumVoiceTune?: number[] // per-voice pitch (semitones)
+  drumVoiceDecay?: number[] // per-voice decay multiplier
   notes?: SavedNote[] // recorded keyboard part
   trackVol?: number[] // per-timeline-track mixer
   trackMute?: boolean[]
