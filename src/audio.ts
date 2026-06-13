@@ -393,8 +393,10 @@ export async function renderMixdown(opts: {
 }
 
 // --- drum machine: synthesized voices + a lookahead step sequencer ---
-export type DrumVoice = 'kick' | 'snare' | 'hat' | 'openhat'
-export const DRUM_VOICES: DrumVoice[] = ['kick', 'snare', 'hat', 'openhat']
+// New voices are appended AFTER the original four so older saved patterns
+// (which are positional) still line up with the right rows.
+export type DrumVoice = 'kick' | 'snare' | 'hat' | 'openhat' | 'clap' | 'rim' | 'tom' | 'shaker'
+export const DRUM_VOICES: DrumVoice[] = ['kick', 'snare', 'hat', 'openhat', 'clap', 'rim', 'tom', 'shaker']
 export const DRUM_STEPS = 16
 
 let noiseBuf: AudioBuffer | null = null
@@ -445,12 +447,73 @@ function hitHat(c: BaseAudioContext, when: number, out: AudioNode, gain: number,
   n.start(when); n.stop(when + dec + 0.02)
 }
 
+// Clap: a few tight noise bursts plus a short diffuse tail, all band-passed.
+function hitClap(c: BaseAudioContext, when: number, out: AudioNode, gain: number): void {
+  const bp = c.createBiquadFilter()
+  bp.type = 'bandpass'; bp.frequency.value = 1200; bp.Q.value = 1.3
+  bp.connect(out)
+  for (const o of [0, 0.009, 0.018]) {
+    const n = c.createBufferSource(); n.buffer = noiseBuffer(c)
+    const ng = c.createGain()
+    ng.gain.setValueAtTime(0.0001, when + o)
+    ng.gain.exponentialRampToValueAtTime(Math.max(0.0001, gain * 0.7), when + o + 0.001)
+    ng.gain.exponentialRampToValueAtTime(0.0001, when + o + 0.02)
+    n.connect(ng).connect(bp)
+    n.start(when + o); n.stop(when + o + 0.03)
+  }
+  const tail = c.createBufferSource(); tail.buffer = noiseBuffer(c)
+  const tg = c.createGain()
+  tg.gain.setValueAtTime(Math.max(0.0001, gain * 0.5), when + 0.018)
+  tg.gain.exponentialRampToValueAtTime(0.0001, when + 0.18)
+  tail.connect(tg).connect(bp)
+  tail.start(when + 0.018); tail.stop(when + 0.2)
+}
+
+// Rim / sidestick: a short, sharp band-passed tone.
+function hitRim(c: BaseAudioContext, when: number, out: AudioNode, gain: number): void {
+  const o = c.createOscillator(); o.type = 'triangle'; o.frequency.value = 1700
+  const bp = c.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 1700; bp.Q.value = 3
+  const g = c.createGain()
+  g.gain.setValueAtTime(Math.max(0.0001, gain * 0.7), when)
+  g.gain.exponentialRampToValueAtTime(0.0001, when + 0.03)
+  o.connect(bp).connect(g).connect(out)
+  o.start(when); o.stop(when + 0.04)
+}
+
+// Low tom: a pitched sine that drops, longer decay than the kick.
+function hitTom(c: BaseAudioContext, when: number, out: AudioNode, gain: number): void {
+  const o = c.createOscillator(); o.type = 'sine'
+  o.frequency.setValueAtTime(180, when)
+  o.frequency.exponentialRampToValueAtTime(90, when + 0.18)
+  const g = c.createGain()
+  g.gain.setValueAtTime(Math.max(0.0001, gain), when)
+  g.gain.exponentialRampToValueAtTime(0.0001, when + 0.4)
+  o.connect(g).connect(out)
+  o.start(when); o.stop(when + 0.42)
+}
+
+// Shaker: soft high-passed noise with a gentler transient than the hat.
+function hitShaker(c: BaseAudioContext, when: number, out: AudioNode, gain: number): void {
+  const n = c.createBufferSource(); n.buffer = noiseBuffer(c)
+  const hp = c.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 6000
+  const g = c.createGain()
+  g.gain.setValueAtTime(0.0001, when)
+  g.gain.linearRampToValueAtTime(Math.max(0.0001, gain * 0.4), when + 0.006)
+  g.gain.exponentialRampToValueAtTime(0.0001, when + 0.06)
+  n.connect(hp).connect(g).connect(out)
+  n.start(when); n.stop(when + 0.08)
+}
+
 function hitDrum(c: BaseAudioContext, when: number, voice: DrumVoice, out: AudioNode, gain: number): void {
   switch (voice) {
     case 'kick': hitKick(c, when, out, gain); break
     case 'snare': hitSnare(c, when, out, gain); break
     case 'hat': hitHat(c, when, out, gain, false); break
     case 'openhat': hitHat(c, when, out, gain, true); break
+    case 'clap': hitClap(c, when, out, gain); break
+    case 'rim': hitRim(c, when, out, gain); break
+    case 'tom': hitTom(c, when, out, gain); break
+    case 'shaker': hitShaker(c, when, out, gain); break
   }
 }
 

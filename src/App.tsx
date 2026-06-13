@@ -16,7 +16,7 @@ import { isDesktop, saveTextNative, saveBytesNative, openTextNative } from './de
 
 const TRACKS = 5
 const PX_PER_SEC = 80
-const DRUM_LABELS = ['Kick', 'Snare', 'Hat', 'Open']
+const DRUM_LABELS = ['Kick', 'Snare', 'Hat', 'Open', 'Clap', 'Rim', 'Tom', 'Shaker']
 
 function uid(): string {
   return (crypto as Crypto & { randomUUID?: () => string }).randomUUID?.() ?? String(Date.now() + Math.random())
