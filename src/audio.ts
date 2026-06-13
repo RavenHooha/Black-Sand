@@ -14,6 +14,17 @@ let convolver: ConvolverNode | null = null
 let delay: DelayNode | null = null
 let echoFb: GainNode | null = null
 let echoWet: GainNode | null = null
+let limiter: DynamicsCompressorNode | null = null
+
+/** Configure a compressor as a transparent brickwall-ish limiter on the sum. */
+function asLimiter(comp: DynamicsCompressorNode): DynamicsCompressorNode {
+  comp.threshold.value = -3
+  comp.knee.value = 0
+  comp.ratio.value = 20
+  comp.attack.value = 0.003
+  comp.release.value = 0.25
+  return comp
+}
 
 // Per-grain colour: pitch in semitones (down = murk), lowpass cutoff in Hz (down
 // = dark), and fade-in/out in real seconds (so chops don't click at the edges).
@@ -78,10 +89,15 @@ function ensureMaster(): GainNode {
   wet.gain.value = 0.25
   convolver = c.createConvolver()
   convolver.buffer = makeImpulse(c, 3.4, 2.6) // long, soft tail
-  master.connect(dry).connect(c.destination)
-  master.connect(convolver).connect(wet).connect(c.destination)
 
-  // dub echo send: master -> delay -> (feedback) -> echoWet -> out
+  // everything sums into a limiter before the speakers, so a busy mix
+  // (clips + drums + notes + reverb + echo feedback) can't clip.
+  limiter = asLimiter(c.createDynamicsCompressor())
+  limiter.connect(c.destination)
+  master.connect(dry).connect(limiter)
+  master.connect(convolver).connect(wet).connect(limiter)
+
+  // dub echo send: master -> delay -> (feedback) -> echoWet -> limiter
   delay = c.createDelay(2.0)
   delay.delayTime.value = 0.375
   echoFb = c.createGain()
@@ -90,7 +106,7 @@ function ensureMaster(): GainNode {
   echoWet.gain.value = 0 // off until dialed up
   master.connect(delay)
   delay.connect(echoFb).connect(delay) // feedback loop (legal — a DelayNode sits in it)
-  delay.connect(echoWet).connect(c.destination)
+  delay.connect(echoWet).connect(limiter)
   return master
 }
 
@@ -133,6 +149,19 @@ export function sliceBuffer(buffer: AudioBuffer, startSec: number, endSec: numbe
   const out = c.createBuffer(buffer.numberOfChannels, len, sr)
   for (let ch = 0; ch < buffer.numberOfChannels; ch++) {
     out.copyToChannel(buffer.getChannelData(ch).subarray(start, end), ch, 0)
+  }
+  return out
+}
+
+/** A reversed copy of a grain — play it backwards (the classic sample move). */
+export function reverseBuffer(buffer: AudioBuffer): AudioBuffer {
+  const c = audioCtx()
+  const out = c.createBuffer(buffer.numberOfChannels, buffer.length, buffer.sampleRate)
+  const n = buffer.length
+  for (let ch = 0; ch < buffer.numberOfChannels; ch++) {
+    const src = buffer.getChannelData(ch)
+    const dst = out.getChannelData(ch)
+    for (let i = 0; i < n; i++) dst[i] = src[n - 1 - i]
   }
   return out
 }
@@ -301,18 +330,20 @@ export async function renderMixdown(opts: {
   const total = Math.max(0.1, opts.durationSec + tail)
   const oc = new OfflineAudioContext(2, Math.ceil(total * sr), sr)
 
-  // mirror the live master bus: dry + reverb (haze) + dub echo sends
+  // mirror the live master bus: dry + reverb (haze) + dub echo, into a limiter
   const m = oc.createGain()
+  const lim = asLimiter(oc.createDynamicsCompressor())
+  lim.connect(oc.destination)
   const d = oc.createGain(); d.gain.value = 1
   const w = oc.createGain(); w.gain.value = Math.max(0, Math.min(1, opts.haze))
   const conv = oc.createConvolver(); conv.buffer = makeImpulse(oc, 3.4, 2.6)
-  m.connect(d).connect(oc.destination)
-  m.connect(conv).connect(w).connect(oc.destination)
+  m.connect(d).connect(lim)
+  m.connect(conv).connect(w).connect(lim)
 
   const dl = oc.createDelay(2.0); dl.delayTime.value = Math.max(0.01, Math.min(2.0, echoTime))
   const fb = oc.createGain(); fb.gain.value = Math.max(0, Math.min(0.9, echoFeedback))
   const ew = oc.createGain(); ew.gain.value = Math.max(0, Math.min(1, echo))
-  m.connect(dl); dl.connect(fb).connect(dl); dl.connect(ew).connect(oc.destination)
+  m.connect(dl); dl.connect(fb).connect(dl); dl.connect(ew).connect(lim)
 
   for (const clip of opts.clips) {
     const src = oc.createBufferSource()

@@ -13,6 +13,7 @@ type Props = {
   onCutoff: (s: Sample, hz: number) => void
   onFadeIn: (s: Sample, sec: number) => void
   onFadeOut: (s: Sample, sec: number) => void
+  onReverse: (s: Sample) => void
 }
 
 const fadeLabel = (sec: number) => (sec <= 0 ? '—' : sec < 1 ? `${Math.round(sec * 1000)}ms` : `${sec.toFixed(2)}s`)
@@ -28,7 +29,7 @@ const toPos = (hz: number) => Math.log(hz / FMIN) / Math.log(CUTOFF_MAX / FMIN)
  * (drop the pitch and close the tone for that murky low end).
  */
 export default function SampleLibrary({
-  samples, looping, volumes, fx, onToggleLoop, onVolume, onPitch, onCutoff, onFadeIn, onFadeOut,
+  samples, looping, volumes, fx, onToggleLoop, onVolume, onPitch, onCutoff, onFadeIn, onFadeOut, onReverse,
 }: Props) {
   return (
     <aside className="library">
@@ -61,6 +62,7 @@ export default function SampleLibrary({
                 >
                   ↻
                 </button>
+                <button className="icon" title="Reverse this grain" onClick={() => onReverse(s)}>⇄</button>
                 <span className="name" title={s.name}>{s.name}</span>
                 <span className="dur">{s.buffer.duration.toFixed(2)}s</span>
               </div>

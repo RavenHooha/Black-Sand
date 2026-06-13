@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react'
 import {
-  audioCtx, decodeFile, sliceBuffer, stopAll, startLayer, setHaze as applyHaze,
+  audioCtx, decodeFile, sliceBuffer, reverseBuffer, stopAll, startLayer, setHaze as applyHaze,
   setEcho as applyEcho, setEchoTime, startTimeline, stopTimeline, renderMixdown,
   startDrums, stopDrums, updateDrums, currentDrumStep, DRUM_VOICES, DRUM_STEPS,
   noteOn, Note, startNotes, stopNotes, ScheduledNote, Layer, GrainFX, DEFAULT_FX, rateOf,
@@ -131,6 +131,17 @@ export default function App() {
   function onVolume(s: Sample, v: number) {
     setVolumes((prev) => ({ ...prev, [s.id]: v }))
     layersRef.current.get(s.id)?.setGain(v)
+  }
+
+  function reverseGrain(s: Sample) {
+    const rev = reverseBuffer(s.buffer)
+    setSamples((prev) => prev.map((x) => (x.id === s.id ? { ...x, buffer: rev } : x)))
+    // if it's looping live, restart the layer on the reversed buffer
+    const layer = layersRef.current.get(s.id)
+    if (layer) {
+      layer.stop()
+      layersRef.current.set(s.id, startLayer(rev, volumes[s.id] ?? 0.8, fx[s.id]))
+    }
   }
 
   function onPitch(s: Sample, semitones: number) {
@@ -592,6 +603,7 @@ export default function App() {
             onCutoff={onCutoff}
             onFadeIn={onFadeIn}
             onFadeOut={onFadeOut}
+            onReverse={reverseGrain}
           />
         </div>
 
