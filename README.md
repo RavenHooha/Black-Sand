@@ -13,24 +13,25 @@ npm run dev
 
 Then open the URL it prints (usually http://localhost:5173).
 
-## What works now (v0.4)
+## What works now (v0.6)
 
 - **Import** a track (wav / mp3 / flac / etc.)
 - **Waveform** view; **drag** across it to select a region
 - **Chop → Grains** carves that region into a new sample
 - **Layer mixer:** each grain can **▶ preview**, **↻ loop as a layer**, with its own **volume fader** — stack a few and they build an atmosphere
+  - **Pitch** (±12 semitones) and **Tone** (a lowpass) per grain — drop them for the murky low end. Live while a layer loops.
 - **Haze** — a master reverb send over everything (the Phaeleh air)
 - **Timeline arranger:** drag grains onto **5 tracks**, scheduled in time
   - **Tempo (BPM)** + a **snap grid** (off / ¼ / ½ / 1 beat / 1 bar) so clips lock to the beat
+  - **Drag clips** to move them across time/tracks; **drag a clip's edges** to trim its in/out points
   - **▶ Play** sweeps a playhead; **↻ Loop** cycles the whole arrangement; **×** removes a clip
+- **Export** — bounce the whole arrangement (clips, held layers, haze tail) to a `.wav`
 - **Stop all** kills everything playing
 - **Save / Open** — write the whole session (grains + arrangement + settings) to a portable `.blacksand` file and load it back
 
 ## Next (the roadmap)
 
-- Per-grain fades, filter, pitch
-- Drag-to-move and trim clips already on the timeline
-- Export the mixdown to a file
+- Per-grain fades (so chops don't click at the edges)
 - Wrap in Tauri for a real desktop build
 
 ## Stack

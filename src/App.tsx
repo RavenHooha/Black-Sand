@@ -1,12 +1,12 @@
 import React, { useRef, useState } from 'react'
 import {
   decodeFile, sliceBuffer, stopAll, startLayer, setHaze as applyHaze,
-  startTimeline, stopTimeline, Layer, GrainFX, DEFAULT_FX, rateOf,
+  startTimeline, stopTimeline, renderMixdown, Layer, GrainFX, DEFAULT_FX, rateOf,
 } from './audio'
 import Waveform from './components/Waveform'
 import SampleLibrary, { Sample } from './components/SampleLibrary'
 import Timeline, { Clip } from './components/Timeline'
-import { encodeWav, bufToBase64, downloadSession, readSessionFile, Session, SavedSample } from './session'
+import { encodeWav, bufToBase64, downloadSession, downloadWav, readSessionFile, Session, SavedSample } from './session'
 
 const TRACKS = 5
 const PX_PER_SEC = 80
@@ -37,6 +37,7 @@ export default function App() {
   const [loopTl, setLoopTl] = useState(true)
   const [bpm, setBpm] = useState(90)
   const [gridBeats, setGridBeats] = useState(0.5) // snap step in beats; 0 = off
+  const [rendering, setRendering] = useState(false)
   const rafRef = useRef<number | null>(null)
 
   async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
@@ -224,6 +225,38 @@ export default function App() {
     }
   }
 
+  // --- export / bounce ---
+  async function exportMix() {
+    if (rendering) return
+    const tlClips = clips
+      .map((c) => {
+        const s = samples.find((x) => x.id === c.sampleId)
+        return s ? { buffer: s.buffer, startSec: c.startSec, offset: c.offset, length: c.length, fx: fx[c.sampleId] } : null
+      })
+      .filter((x): x is NonNullable<typeof x> => !!x)
+    const activeLayers = [...looping]
+      .map((id) => {
+        const s = samples.find((x) => x.id === id)
+        return s ? { buffer: s.buffer, gain: volumes[id] ?? 0.8, fx: fx[id] } : null
+      })
+      .filter((x): x is NonNullable<typeof x> => !!x)
+
+    if (tlClips.length === 0 && activeLayers.length === 0) {
+      alert('Nothing to bounce yet — arrange some clips or loop a layer first.')
+      return
+    }
+    setRendering(true)
+    try {
+      const mix = await renderMixdown({ clips: tlClips, layers: activeLayers, haze, durationSec: lengthSec() })
+      downloadWav(mix, 'black-sand-mix')
+    } catch (err) {
+      alert('Render failed — see console.')
+      console.error(err)
+    } finally {
+      setRendering(false)
+    }
+  }
+
   return (
     <div className="app">
       <header>
@@ -242,6 +275,9 @@ export default function App() {
             <input type="file" accept=".blacksand,application/json" onChange={loadProject} hidden />
           </label>
           <button onClick={saveProject} title="Save session to a .blacksand file">Save</button>
+          <button onClick={exportMix} disabled={rendering} title="Bounce the arrangement to a .wav">
+            {rendering ? 'Bouncing…' : 'Export'}
+          </button>
           <button onClick={stopEverything}>Stop all</button>
         </div>
       </header>

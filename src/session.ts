@@ -85,6 +85,17 @@ export function downloadSession(session: Session, filename: string): void {
   URL.revokeObjectURL(url)
 }
 
+/** Bounce an AudioBuffer to a .wav file download. */
+export function downloadWav(buffer: AudioBuffer, filename: string): void {
+  const blob = new Blob([encodeWav(buffer)], { type: 'audio/wav' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename.endsWith('.wav') ? filename : `${filename}.wav`
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
 /** Read a .blacksand file and decode its grains back into AudioBuffers. */
 export async function readSessionFile(file: File): Promise<{ session: Session; buffers: Map<string, AudioBuffer> }> {
   const text = await file.text()
